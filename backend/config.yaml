@@ -1,0 +1,15 @@
+# AgentForge Global Configuration YAML
+
+# Base App Settings
+APP_NAME: "AgentForge-Backend-Service"
+ENV: "dev"
+LOG_LEVEL: "INFO"
+
+# Database Configuration (Defaults)
+DB_URL: "postgresql://user:password@localhost:5432/agentforge"
+
+# Redis Configuration (Defaults)
+REDIS_URL: "redis://localhost:6379/0"
+
+# Model Gateway Settings (Placeholders)
+MODEL_API_KEY: "PLACEHOLDER_KEY"

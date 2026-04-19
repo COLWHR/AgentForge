@@ -1,10 +1,15 @@
 import json
+import os
 import subprocess
-import resource
 import sys
 import signal
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from backend.core.logging import logger
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows does not provide resource
+    resource = None
 
 class PythonSandbox:
     """
@@ -33,6 +38,9 @@ class PythonSandbox:
         Called in the child process before executing the code.
         NOTE: Best-effort on non-Linux OS.
         """
+        if resource is None:
+            return
+
         try:
             # RLIMIT_CPU: Max CPU time in seconds
             resource.setrlimit(resource.RLIMIT_CPU, (self.cpu_limit, self.cpu_limit))
@@ -132,13 +140,14 @@ except Exception as e:
 sys.exit(0)
 """
         try:
+            preexec_fn = self._limit_resources if os.name == "posix" else None
             # Capture both stdout and stderr from PIPE
             process = subprocess.Popen(
                 [sys.executable, "-c", wrapper_code],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                preexec_fn=self._limit_resources
+                preexec_fn=preexec_fn
             )
             
             # communicate handles the pipes and waits for the process
@@ -166,7 +175,7 @@ sys.exit(0)
             
         except subprocess.TimeoutExpired:
             process.kill()
-            return {"status": "error", "error": "Execution timed out after 5.0 seconds"}
+            return {"status": "error", "error": "Execution timeout after 5.0 seconds"}
         except Exception as e:
             logger.error(f"Sandbox execution fatal error: {str(e)}")
             return {"status": "error", "error": f"Sandbox execution fatal error: {str(e)}"}

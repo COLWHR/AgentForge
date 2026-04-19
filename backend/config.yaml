@@ -6,7 +6,7 @@ ENV: "dev"
 LOG_LEVEL: "INFO"
 
 # Database Configuration (Defaults)
-DB_URL: "postgresql://user:password@localhost:5432/agentforge"
+DB_URL: "postgresql+asyncpg://user:password@localhost:5432/agentforge"
 
 # Redis Configuration (Defaults)
 REDIS_URL: "redis://localhost:6379/0"

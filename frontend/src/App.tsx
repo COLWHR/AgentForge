@@ -1,159 +1,227 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import Sidebar from './components/Sidebar'
-import Editor from './components/Editor'
-import Preview from './components/Preview'
-import type { AppStatus, ExecutionResult, AppErrorInfo, ExecutionData } from './types/app'
-import { agentApi } from './api/agent'
+import { useEffect, useMemo, useState } from 'react'
+
+import { marketplaceApi, type ConnectionTestResult, type ExtensionDetail, type ExtensionSummary } from './api/marketplace'
+
+const FEATURED_TOOL_IDS = ['github', 'filesystem', 'brave_search']
 
 function App() {
-  // 全局状态定义
-  const [status, setStatus] = useState<AppStatus>('idle')
-  
-  // 关键状态位
-  const [agentId, setAgentId] = useState<string | null>(null)
-  const [executionId, setExecutionId] = useState<string | null>(null)
-  const [executionData, setExecutionData] = useState<ExecutionData | null>(null)
-  
-  // 错误信息
-  const [errorCode, setErrorCode] = useState<number | null>(null)
-  const [errorSource, setErrorSource] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Polling handle
-  const pollingTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  // --- Guardrails & Helpers ---
-  const canSave = () => status !== 'saving' && status !== 'running'
-  const canExecute = () => status !== 'saving' && status !== 'running' && !!agentId
-
-  const resetError = () => {
-    setErrorCode(null)
-    setErrorSource(null)
-    setErrorMessage(null)
-  }
-
-  const isExecutionTerminalStatus = (statusStr: string) => {
-    const terminalStatuses = ['success', 'failed', 'timeout', 'cancelled'];
-    return terminalStatuses.includes(statusStr.toLowerCase());
-  }
-
-  const mapExecutionStatusToViewStatus = (rawStatus: string): AppStatus => {
-    const s = rawStatus.toLowerCase();
-    if (s === 'running' || s === 'created') return 'running'
-    if (s === 'success') return 'success'
-    if (s === 'failed' || s === 'timeout' || s === 'cancelled') return 'failed'
-    return 'running' // Default to running if not terminal but not explicitly created/running
-  }
-
-  const stopPolling = useCallback(() => {
-    if (pollingTimerRef.current) {
-      clearInterval(pollingTimerRef.current)
-      pollingTimerRef.current = null
-    }
-  }, [])
-
-  const resetExecutionViewState = useCallback(() => {
-    setExecutionId(null)
-    setExecutionData(null)
-    resetError()
-    stopPolling()
-  }, [stopPolling])
-
-  const pollExecutionOnce = useCallback(async (id: string) => {
-    try {
-      const response = await agentApi.getExecution(id)
-      if (response.code === 0) {
-        const data = response.data
-        setExecutionData(data)
-        
-        // 只有在首次成功拿到 executionData 后，再从 loading 切换为 running/success/failed
-        const nextStatus = mapExecutionStatusToViewStatus(data.status)
-        setStatus(nextStatus)
-
-        // 判断终态
-        if (isExecutionTerminalStatus(data.status)) {
-          stopPolling()
-        }
-      } else {
-        throw new Error(response.message || 'Fetch execution failed')
-      }
-    } catch (err: any) {
-      console.error('Polling error:', err)
-      setErrorCode(err.code || 5003)
-      setErrorMessage(err.message || '获取执行状态失败')
-      setErrorSource('BACKEND')
-      setStatus('failed')
-      stopPolling()
-    }
-  }, [stopPolling])
-
-  const startPolling = useCallback((id: string) => {
-    stopPolling() // 确保清理旧轮询
-    
-    // 保持 executionViewState 为 loading
-    setStatus('loading')
-    
-    // 立即执行一次
-    pollExecutionOnce(id)
-    
-    // 启动定时轮询
-    pollingTimerRef.current = setInterval(() => {
-      pollExecutionOnce(id)
-    }, 2000)
-  }, [pollExecutionOnce, stopPolling])
+  const [userId, setUserId] = useState('demo-user')
+  const [agentId, setAgentId] = useState('demo-agent')
+  const [extensions, setExtensions] = useState<ExtensionSummary[]>([])
+  const [details, setDetails] = useState<Record<string, ExtensionDetail>>({})
+  const [configs, setConfigs] = useState<Record<string, Record<string, string>>>({})
+  const [messages, setMessages] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState<Record<string, boolean>>({})
+  const [globalMessage, setGlobalMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    return () => stopPolling() // 卸载时清理
-  }, [stopPolling])
+    void (async () => {
+      try {
+        const items = await marketplaceApi.listExtensions()
+        const featured = items.filter((item) => FEATURED_TOOL_IDS.includes(item.id))
+        setExtensions(featured)
 
-  const handleExecutionResult = (data: ExecutionResult) => {
-    setExecutionId(data.execution_id)
-    startPolling(data.execution_id)
+        const loadedDetails = await Promise.all(featured.map((item) => marketplaceApi.getExtension(item.id)))
+        setDetails(Object.fromEntries(loadedDetails.map((item) => [item.id, item])))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load marketplace data.'
+        setGlobalMessage(message)
+      }
+    })()
+  }, [])
+
+  const orderedExtensions = useMemo(
+    () =>
+      FEATURED_TOOL_IDS.map((id) => extensions.find((item) => item.id === id)).filter(Boolean) as ExtensionSummary[],
+    [extensions]
+  )
+
+  const setConfigValue = (extensionId: string, key: string, value: string) => {
+    setConfigs((current) => ({
+      ...current,
+      [extensionId]: {
+        ...(current[extensionId] || {}),
+        [key]: value,
+      },
+    }))
   }
 
-  const handleStatusChange = useCallback((newStatus: AppStatus) => {
-    if (newStatus === 'loading') {
-      // 强约束：在点击 Run 的瞬间立即清理旧状态，防止竞态污染
-      stopPolling()
-      setExecutionData(null)
-      setExecutionId(null)
-      resetError()
+  const runAction = async (extensionId: string, action: () => Promise<void>) => {
+    setBusy((current) => ({ ...current, [extensionId]: true }))
+    try {
+      await action()
+    } finally {
+      setBusy((current) => ({ ...current, [extensionId]: false }))
     }
-    setStatus(newStatus)
-  }, [stopPolling])
+  }
+
+  const handleTestConnection = async (extensionId: string) => {
+    await runAction(extensionId, async () => {
+      const result: ConnectionTestResult = await marketplaceApi.testConnection(extensionId, configs[extensionId] || {})
+      setMessages((current) => ({
+        ...current,
+        [extensionId]: result.ok ? `Connected: ${result.message}` : `Check failed: ${result.message}`,
+      }))
+    })
+  }
+
+  const handleEnableForUser = async (extensionId: string) => {
+    await runAction(extensionId, async () => {
+      await marketplaceApi.installExtension(extensionId, userId, configs[extensionId] || {})
+      setMessages((current) => ({
+        ...current,
+        [extensionId]: 'Enabled for this user.',
+      }))
+    })
+  }
+
+  const handleBindToAgent = async (extensionId: string) => {
+    const extension = details[extensionId]
+    if (!extension) {
+      return
+    }
+    await runAction(extensionId, async () => {
+      await marketplaceApi.bindTools(
+        agentId,
+        extension.tools.map((tool) => tool.id)
+      )
+      setMessages((current) => ({
+        ...current,
+        [extensionId]: 'Bound to the current agent.',
+      }))
+    })
+  }
 
   return (
-    <div className="flex h-screen w-full bg-slate-900 text-slate-200 overflow-hidden font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
-      {/* 左侧导航栏 (Sidebar) - 固定宽度 */}
-      <Sidebar />
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto max-w-7xl px-6 py-10">
+        <header className="mb-10 grid gap-6 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl shadow-black/20">
+          <div className="grid gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-400">Tool Marketplace</p>
+            <h1 className="text-4xl font-black tracking-tight">Select tools on the platform, not on the local machine.</h1>
+            <p className="max-w-3xl text-sm text-slate-400">
+              Curated MCP tools are listed here for users to enable, configure, test, and bind to an agent.
+              Platform operators only need to add manifests and backend support once.
+            </p>
+          </div>
 
-      {/* 中间编辑区 (Editor) - 自适应宽度 */}
-      <Editor 
-        status={status} 
-        onStatusChange={handleStatusChange} 
-        onAgentCreated={setAgentId}
-        onExecutionFinished={handleExecutionResult}
-        agent_id={agentId}
-        canSave={canSave}
-        canExecute={canExecute}
-        resetExecution={resetExecutionViewState}
-        onError={(err: AppErrorInfo) => {
-          setErrorCode(err.code || 500)
-          setErrorMessage(err.message || 'Unknown error')
-          setErrorSource(err.source || 'FRONTEND')
-        }}
-      />
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">User ID</span>
+              <input
+                className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none ring-0 transition focus:border-cyan-500"
+                value={userId}
+                onChange={(event) => setUserId(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Agent ID</span>
+              <input
+                className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none ring-0 transition focus:border-cyan-500"
+                value={agentId}
+                onChange={(event) => setAgentId(event.target.value)}
+              />
+            </label>
+          </div>
 
-      {/* 右侧预览区 (Preview / Logs) - 固定宽度 */}
-      <Preview 
-        status={status}
-        agent_id={agentId}
-        execution_id={executionId}
-        execution_data={executionData}
-        error_code={errorCode}
-        error_source={errorSource}
-        error_message={errorMessage}
-      />
+          {globalMessage && (
+            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              {globalMessage}
+            </div>
+          )}
+        </header>
+
+        <section className="grid gap-6 lg:grid-cols-3">
+          {orderedExtensions.map((extension) => {
+            const detail = details[extension.id]
+            const config = configs[extension.id] || {}
+            const loading = busy[extension.id] || false
+
+            return (
+              <article
+                key={extension.id}
+                className="grid gap-6 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl shadow-black/20"
+              >
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-2xl font-black tracking-tight">{extension.name}</h2>
+                      <p className="mt-1 text-xs uppercase tracking-[0.25em] text-cyan-400">{extension.tool_type}</p>
+                    </div>
+                    <div className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400">
+                      {extension.categories.join(' / ') || 'tool'}
+                    </div>
+                  </div>
+                  <p className="text-sm leading-6 text-slate-400">{extension.description}</p>
+                </div>
+
+                <div className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Configuration</p>
+                  {extension.config_fields.length === 0 && (
+                    <p className="text-sm text-slate-500">No user configuration required.</p>
+                  )}
+                  {extension.config_fields.map((field) => (
+                    <label key={field.key} className="grid gap-2">
+                      <span className="text-sm font-semibold text-slate-200">{field.label}</span>
+                      <input
+                        type={field.type === 'password' ? 'password' : 'text'}
+                        value={config[field.key] || ''}
+                        onChange={(event) => setConfigValue(extension.id, field.key, event.target.value)}
+                        placeholder={field.placeholder || ''}
+                        className="rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
+                      />
+                      {field.help_text && <span className="text-xs text-slate-500">{field.help_text}</span>}
+                    </label>
+                  ))}
+                </div>
+
+                <div className="grid gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Tools</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(detail?.tools || []).map((tool) => (
+                      <span key={tool.id} className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs text-cyan-200">
+                        {tool.display_name || tool.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void handleTestConnection(extension.id)}
+                    className="rounded-2xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50"
+                  >
+                    {loading ? 'Working...' : 'Test configuration'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void handleEnableForUser(extension.id)}
+                    className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-500 disabled:opacity-50"
+                  >
+                    Enable for user
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || !detail || detail.tools.length === 0}
+                    onClick={() => void handleBindToAgent(extension.id)}
+                    className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-50"
+                  >
+                    Bind tools to agent
+                  </button>
+                  {messages[extension.id] && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+                      {messages[extension.id]}
+                    </div>
+                  )}
+                </div>
+              </article>
+            )
+          })}
+        </section>
+      </div>
     </div>
   )
 }

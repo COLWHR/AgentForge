@@ -151,7 +151,7 @@ def create_router() -> APIRouter:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.delete("/agents/{agent_id}/tools/{tool_id}")
+    @router.delete("/agents/{agent_id}/tools/{tool_id:path}")
     async def unbind_tool(agent_id: str, tool_id: str, request: Request):
         """Unbind a tool from an agent."""
         try:

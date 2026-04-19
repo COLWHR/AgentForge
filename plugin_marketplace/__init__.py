@@ -247,7 +247,32 @@ class MarketplaceAPI:
         if not self._initialized:
             await self.initialize()
         registry = ToolRegistry(self._session_factory)
-        return await registry.list_tools(extension_id=extension_id)
+        tools = await registry.list_tools(extension_id=extension_id)
+        if tools:
+            return tools
+
+        extension = self._extension_index.get(extension_id)
+        if extension is None:
+            raise ValueError(f"Extension not found: {extension_id}")
+
+        adapter = self._create_adapter(extension_id, {})
+        descriptors = await adapter.list_tools()
+        return [
+            {
+                "id": descriptor.id,
+                "name": descriptor.name,
+                "display_name": getattr(descriptor, "display_name", None),
+                "description": descriptor.description,
+                "extension_id": extension_id,
+                "extension_name": extension.name,
+                "tool_type": extension.tool_type,
+                "input_schema": descriptor.input_schema,
+                "output_schema": descriptor.output_schema,
+                "mcp_tool_name": getattr(descriptor, "mcp_tool_name", None),
+                "openai_schema": descriptor.to_openai_schema(),
+            }
+            for descriptor in descriptors
+        ]
 
     async def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """Get all tool schemas in OpenAI function-calling format."""

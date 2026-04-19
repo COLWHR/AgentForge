@@ -21,7 +21,16 @@ class Settings(BaseSettings):
     ENV: str = "dev"
     APP_NAME: str = "AgentForge"
     LOG_LEVEL: str = "INFO"
-    CORS_ALLOWED_ORIGINS: Any = ["http://localhost:3000"]
+    CORS_ALLOWED_ORIGINS: Any = [
+        "http://localhost:3000",
+        "http://localhost:4174",
+        "http://localhost:4175",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:4174",
+        "http://127.0.0.1:4175",
+        "http://127.0.0.1:5173",
+    ]
     
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
     @classmethod

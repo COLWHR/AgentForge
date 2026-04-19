@@ -115,6 +115,100 @@ def test_marketplace_router_tests_extension_configuration(tmp_path):
     asyncio.run(engine.dispose())
 
 
+def test_marketplace_router_full_extension_lifecycle(tmp_path):
+    from plugin_marketplace import MarketplaceAPI
+    from plugin_marketplace.api.routes import create_router
+
+    async def _build_api():
+        db_path = tmp_path / "marketplace-lifecycle-api.db"
+        database_url = f"sqlite+aiosqlite:///{db_path}"
+        engine = create_async_engine(database_url, future=True)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        api = MarketplaceAPI(database_url=database_url, session_factory=session_factory)
+        await api.initialize()
+        return api, engine
+
+    import asyncio
+
+    api, engine = asyncio.run(_build_api())
+
+    app = FastAPI()
+    app.state.pm_api = api
+    app.include_router(create_router())
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/marketplace/extensions/builtin")
+        assert response.status_code == 200
+        extension = response.json()
+        assert extension["id"] == "builtin"
+        assert any(tool["id"] == "builtin/echo" for tool in extension["tools"])
+
+        response = client.get("/api/v1/marketplace/extensions/builtin/tools")
+        assert response.status_code == 200
+        tools = response.json()
+        assert any(tool["id"] == "builtin/echo" for tool in tools)
+
+        response = client.post(
+            "/api/v1/marketplace/extensions/builtin/install",
+            json={"user_id": "demo-user", "config": {}},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "installed"
+
+        response = client.get("/api/v1/marketplace/users/demo-user/extensions")
+        assert response.status_code == 200
+        user_extensions = response.json()
+        assert any(item["extension_id"] == "builtin" for item in user_extensions)
+
+        response = client.post(
+            "/api/v1/marketplace/agents/demo-agent/tools/bind",
+            json={"tool_ids": ["builtin/echo"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["bound"] == 1
+
+        response = client.get("/api/v1/marketplace/agents/demo-agent/tools")
+        assert response.status_code == 200
+        agent_tools = response.json()["tools"]
+        assert any(tool["function"]["name"] == "builtin/echo" for tool in agent_tools)
+
+        response = client.get("/api/v1/marketplace/tools/schemas")
+        assert response.status_code == 200
+        schemas = response.json()["tools"]
+        assert any(tool["function"]["name"] == "builtin/echo" for tool in schemas)
+
+        response = client.post(
+            "/api/v1/marketplace/tools/execute",
+            json={
+                "tool_id": "builtin/echo",
+                "arguments": {"text": "route hello"},
+                "context": {"user_id": "demo-user"},
+            },
+        )
+        assert response.status_code == 200
+        assert json.loads(response.json()["result"])["echo"] == "route hello"
+
+        response = client.delete("/api/v1/marketplace/agents/demo-agent/tools/builtin/echo")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+        response = client.get("/api/v1/marketplace/agents/demo-agent/tools")
+        assert response.status_code == 200
+        assert response.json()["tools"] == []
+
+        response = client.delete("/api/v1/marketplace/extensions/builtin/uninstall?user_id=demo-user")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+        response = client.get("/api/v1/marketplace/users/demo-user/extensions")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    asyncio.run(engine.dispose())
+
+
 @pytest.mark.asyncio
 async def test_marketplace_initialization_registers_adapters_for_seeded_extensions(tmp_path):
     from plugin_marketplace import MarketplaceAPI

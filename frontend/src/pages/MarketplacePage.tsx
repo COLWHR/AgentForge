@@ -1,11 +1,11 @@
 import { Link2 } from 'lucide-react'
 
-import { EmptyState } from '../components/feedback/EmptyState'
 import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { MarketplaceCatalog } from '../components/workspace/mcp/MarketplaceCatalog'
 
 export function MarketplacePage() {
   return (
@@ -21,11 +21,8 @@ export function MarketplacePage() {
         }
       />
 
-      <Card title="Tool Cards Placeholder" description="Consistent card hierarchy for Installed and Bound states.">
-        <EmptyState
-          title="No Tool Data Loaded"
-          description="Marketplace integration is deferred. This page validates card spacing and action priority."
-        />
+      <Card title="Tool Catalog" description="真实读取 marketplace extensions；安装与绑定动作仍遵循分层 gated。">
+        <MarketplaceCatalog />
       </Card>
     </PageContainer>
   )

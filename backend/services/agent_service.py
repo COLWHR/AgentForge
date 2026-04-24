@@ -8,22 +8,43 @@ from backend.core.security import encrypt_api_key, validate_provider_url
 
 class AgentService:
     @staticmethod
-    def _to_agent_read(db_agent: Agent) -> AgentRead:
-        cfg = db_agent.config or {}
+    def _extract_string(value: object) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    @staticmethod
+    def _is_string_list(value: object) -> bool:
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+    @staticmethod
+    def _compose_agent_read(db_agent: Agent) -> AgentRead:
+        cfg = db_agent.config if isinstance(db_agent.config, dict) else {}
         runtime_config = cfg.get("runtime_config") if isinstance(cfg.get("runtime_config"), dict) else {}
         capability_flags = cfg.get("capability_flags") if isinstance(cfg.get("capability_flags"), dict) else {}
-        tools = cfg.get("tools") if isinstance(cfg.get("tools"), list) else []
+        tools = cfg.get("tools") if AgentService._is_string_list(cfg.get("tools")) else []
         constraints = cfg.get("constraints") if isinstance(cfg.get("constraints"), dict) else {"max_steps": 6}
-        name = cfg.get("name") if isinstance(cfg.get("name"), str) else ""
-        if not name.strip():
-            name = "Untitled Agent"
+        name = AgentService._extract_string(cfg.get("name"))
+        llm_model_name = AgentService._extract_string(cfg.get("llm_model_name"))
+        archived = bool(cfg.get("archived", False))
+
+        availability_reason: Optional[str] = None
+        is_available = True
+        if not isinstance(db_agent.config, dict):
+            is_available = False
+            availability_reason = "Invalid legacy config"
+        elif llm_model_name == "":
+            is_available = False
+            availability_reason = "Missing model configuration"
+        elif archived:
+            is_available = False
+            availability_reason = "Archived"
+
         return AgentRead(
             id=db_agent.id,
-            name=name,
-            description=cfg.get("description", ""),
-            avatar_url=cfg.get("avatar_url"),
-            llm_provider_url=cfg.get("llm_provider_url", ""),
-            llm_model_name=cfg.get("llm_model_name", ""),
+            name=name if name else "Untitled Agent",
+            description=AgentService._extract_string(cfg.get("description")),
+            avatar_url=cfg.get("avatar_url") if isinstance(cfg.get("avatar_url"), str) else None,
+            llm_provider_url=AgentService._extract_string(cfg.get("llm_provider_url")),
+            llm_model_name=llm_model_name,
             runtime_config={
                 "temperature": runtime_config.get("temperature", 0.7),
                 "max_tokens": runtime_config.get("max_tokens"),
@@ -34,7 +55,14 @@ class AgentService:
             tools=tools,
             constraints=constraints,
             has_api_key=bool(cfg.get("llm_api_key_encrypted")),
+            archived=archived,
+            is_available=is_available,
+            availability_reason=availability_reason,
         )
+
+    @staticmethod
+    def _to_agent_read(db_agent: Agent) -> AgentRead:
+        return AgentService._compose_agent_read(db_agent)
 
     @staticmethod
     async def create_agent(db: AsyncSession, config: AgentCreateRequest, team_id: str) -> AgentRead:
@@ -68,7 +96,13 @@ class AgentService:
         agent_stmt = select(Agent).where(Agent.id.in_(agent_ids))
         rows = await db.execute(agent_stmt)
         agents = rows.scalars().all()
-        return [AgentService._to_agent_read(a) for a in agents]
+        normalized: List[AgentRead] = []
+        for agent in agents:
+            mapped = AgentService._to_agent_read(agent)
+            if mapped.archived:
+                continue
+            normalized.append(mapped)
+        return normalized
 
     @staticmethod
     async def get_agent(db: AsyncSession, agent_id: uuid.UUID) -> Optional[AgentRead]:
@@ -98,6 +132,18 @@ class AgentService:
 
         next_config = dict(db_agent.config or {})
         next_config.update(incoming)
+        db_agent.config = next_config
+        await db.commit()
+        await db.refresh(db_agent)
+        return AgentService._to_agent_read(db_agent)
+
+    @staticmethod
+    async def delete_agent(db: AsyncSession, agent_id: uuid.UUID) -> Optional[AgentRead]:
+        db_agent = await AgentService.get_agent_raw(db, agent_id)
+        if db_agent is None:
+            return None
+        next_config = dict(db_agent.config or {})
+        next_config["archived"] = True
         db_agent.config = next_config
         await db.commit()
         await db.refresh(db_agent)

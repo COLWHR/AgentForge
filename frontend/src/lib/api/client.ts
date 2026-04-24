@@ -104,6 +104,10 @@ class ApiClient {
       })
     }
 
+    if (options.responseMode === 'raw') {
+      return { data: rawResponse as T }
+    }
+
     const envelope = rawResponse as RawApiEnvelope<T>
 
     if (typeof envelope?.code !== 'number') {

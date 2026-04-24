@@ -14,13 +14,14 @@ from backend.api.routes.sandbox import router as sandbox_router
 from backend.api.routes.teams import router as teams_router
 from backend.api.routes.tools import router as tools_router
 from backend.core.config import settings
-from backend.core.database import AsyncSessionLocal, Base, engine
+from backend.core import database as core_db
 from backend.core.exceptions import AgentForgeBaseException
 from backend.core.logging import logger, setup_logging
 from backend.core.tool_runtime import ToolRegistry
 from backend.core.tools import EchoTool, PythonAddTool, PythonExecutorTool
 from backend.models.constants import ResponseCode
 from backend.models.schemas import BaseResponse
+from backend.services.marketplace_tool_adapter import marketplace_tool_adapter
 from plugin_marketplace import MarketplaceAPI
 from plugin_marketplace.api.routes import create_router as create_marketplace_router
 from plugin_marketplace.db.database import init_db as init_pm_db
@@ -54,27 +55,32 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def on_startup() -> None:
         logger.info("Initializing database tables...")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await init_pm_db(engine)
+        async with core_db.engine.begin() as conn:
+            await conn.run_sync(core_db.Base.metadata.create_all)
+        await init_pm_db(core_db.engine)
         logger.info("Database tables initialized.")
 
-        logger.info("Registering tools...")
-        registry = ToolRegistry()
-        registry.register(EchoTool())
-        registry.register(PythonAddTool())
-        registry.register(PythonExecutorTool())
-        registry.lock()
-        app.state.tool_registry = registry
-        logger.info("Tool registry locked.")
+        existing_registry = getattr(app.state, "tool_registry", None)
+        if existing_registry is None:
+            logger.info("Registering tools...")
+            registry = ToolRegistry()
+            registry.register(EchoTool())
+            registry.register(PythonAddTool())
+            registry.register(PythonExecutorTool())
+            registry.lock()
+            app.state.tool_registry = registry
+            logger.info("Tool registry locked.")
+        else:
+            logger.info("Tool registry already initialized, skipping re-registration.")
 
         logger.info("Initializing plugin marketplace...")
         pm_api = MarketplaceAPI(
             database_url=settings.DB_URL,
-            session_factory=AsyncSessionLocal,
+            session_factory=core_db.AsyncSessionLocal,
         )
         await pm_api.initialize()
         app.state.pm_api = pm_api
+        marketplace_tool_adapter._marketplace_api = pm_api
         logger.info("Plugin marketplace initialized.")
 
     @app.on_event("shutdown")

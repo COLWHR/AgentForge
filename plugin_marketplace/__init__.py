@@ -88,6 +88,7 @@ class MarketplaceAPI:
         extension_records = await self._marketplace_service.list_extension_records()
         self._extension_index = {extension.id: extension for extension in extension_records}
         self._adapters = self._build_adapter_factories(extension_records)
+        await self._materialize_tool_catalog(extension_records)
 
         self._initialized = True
         logger.info("MarketplaceAPI initialized with %d manifests", len(manifests))
@@ -116,6 +117,30 @@ class MarketplaceAPI:
         if not factory:
             raise ValueError(f"No adapter found for extension: {extension_id}")
         return factory(user_config or {})
+
+    async def _materialize_tool_catalog(self, extensions: List[Any]) -> None:
+        registry = ToolRegistry(self._session_factory)
+        for extension in extensions:
+            descriptors = await self._discover_catalog_descriptors(extension)
+            if not descriptors:
+                continue
+            await registry.upsert_tools(extension.id, descriptors)
+
+    async def _discover_catalog_descriptors(self, extension: Any) -> List[Any]:
+        manifest = extension.manifest or {}
+        manifest_tools = manifest.get("tools") or []
+        if extension.tool_type == ToolType.BUILTIN.value:
+            adapter = self._create_adapter(extension.id, {})
+        elif manifest_tools:
+            adapter = self._create_adapter(extension.id, {})
+        else:
+            return []
+
+        try:
+            return await adapter.list_tools()
+        except Exception as exc:
+            logger.warning("Failed to materialize tools for extension %s: %s", extension.id, exc)
+            return []
 
     async def _get_user_extension_config(self, extension_id: str, user_id: str) -> Dict[str, Any]:
         if not self._session_factory:
@@ -201,14 +226,33 @@ class MarketplaceAPI:
         if not self._initialized:
             await self.initialize()
         binding = AgentToolBindingService(self._session_factory)
-        await binding.bind_tools(agent_id, tool_ids)
+        return await binding.bind_tools(agent_id, tool_ids)
+
+    async def replace_agent_tools(self, agent_id: str, tool_ids: List[str]) -> Any:
+        """Replace all agent tool bindings with the requested set."""
+        if not self._initialized:
+            await self.initialize()
+        binding = AgentToolBindingService(self._session_factory)
+        return await binding.replace_tools(agent_id, tool_ids)
 
     async def unbind_tools_from_agent(self, agent_id: str, tool_ids: List[str]) -> None:
         """Unbind tools from an agent."""
         if not self._initialized:
             await self.initialize()
         binding = AgentToolBindingService(self._session_factory)
-        await binding.unbind_tools(agent_id, tool_ids)
+        return await binding.unbind_tools(agent_id, tool_ids)
+
+    async def validate_tool_ids(self, tool_ids: List[str]) -> Any:
+        if not self._initialized:
+            await self.initialize()
+        binding = AgentToolBindingService(self._session_factory)
+        return await binding.resolve_tool_ids(tool_ids)
+
+    async def get_agent_tool_ids(self, agent_id: str) -> List[str]:
+        if not self._initialized:
+            await self.initialize()
+        binding = AgentToolBindingService(self._session_factory)
+        return await binding.get_agent_tool_ids(agent_id)
 
     async def list_extensions(self) -> List[Dict[str, Any]]:
         """List all available extensions."""
@@ -291,6 +335,12 @@ class MarketplaceAPI:
                 },
             })
         return schemas
+
+    async def get_tool_catalog_entries(self, tool_ids: List[str]) -> List[Dict[str, Any]]:
+        if not self._initialized:
+            await self.initialize()
+        registry = ToolRegistry(self._session_factory)
+        return await registry.get_tools(tool_ids)
 
     async def test_extension_connection(
         self,

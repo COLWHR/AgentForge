@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from sqlalchemy import select, update
 from backend.core.database import AsyncSessionLocal
 from backend.models.orm import ExecutionLog, ReactStepLog
@@ -115,7 +115,8 @@ class ExecutionLogService:
         steps_used: int,
         final_answer: Optional[str] = None,
         total_token_usage: Optional[TokenUsage] = None,
-        error: Optional[ExecutionErrorModel] = None
+        error: Optional[ExecutionErrorModel] = None,
+        error_details: Optional[Dict[str, Any]] = None,
     ) -> None:
         async with AsyncSessionLocal() as session:
             stmt_get = select(ExecutionLog.data).where(ExecutionLog.execution_id == execution_id)
@@ -128,6 +129,9 @@ class ExecutionLogService:
             error_code = error.error_code if error else None
             error_source = error.error_source if error else None
             error_message = error.error_message if error else None
+            existing_data["error_code"] = error_code
+            existing_data["error_source"] = error_source
+            existing_data["error_details"] = error_details
             stmt = (
                 update(ExecutionLog)
                 .where(ExecutionLog.execution_id == execution_id)
@@ -148,6 +152,51 @@ class ExecutionLogService:
             await session.execute(stmt)
             await session.commit()
             logger.info(f"Execution log completed: {execution_id} | Status: {status}")
+
+    async def append_react_step(
+        self,
+        execution_id: uuid.UUID,
+        request_id: str,
+        step_index: int,
+        state_before: str,
+        state_after: str,
+        thought: Optional[str],
+        action: Optional[Dict[str, Any]],
+        observation: Optional[Dict[str, Any]],
+        step_status: str,
+        error_code: Optional[str] = None,
+        error_source: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        async with AsyncSessionLocal() as session:
+            session.add(
+                ReactStepLog(
+                    execution_id=execution_id,
+                    step_index=step_index,
+                    request_id=request_id,
+                    step_status=step_status,
+                    state_before=state_before,
+                    state_after=state_after,
+                    thought=thought,
+                    action=action,
+                    observation=observation,
+                    error_code=error_code,
+                    error_source=error_source,
+                    error_message=error_message,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await session.execute(
+                update(ExecutionLog)
+                .where(ExecutionLog.execution_id == execution_id)
+                .values(
+                    status="RUNNING",
+                    final_state=state_after,
+                    steps_used=step_index,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+            await session.commit()
 
     async def get_execution_record(self, execution_id: uuid.UUID, team_id: Optional[uuid.UUID] = None) -> Optional[ExecutionLog]:
         try:
@@ -189,6 +238,7 @@ class ExecutionLogService:
             "error_code": execution.error_code,
             "error_source": execution.error_source,
             "error_message": execution.error_message,
+            "error_details": (execution.data or {}).get("error_details"),
             "error": (
                 {
                     "code": execution.error_code,

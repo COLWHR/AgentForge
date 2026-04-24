@@ -125,15 +125,19 @@ kill_by_pattern "$PROJECT_ROOT/frontend.*vite" "legacy-vite"
 kill_by_pattern "$PROJECT_ROOT/frontend.*npm run dev" "legacy-npm-dev"
 log "startup cleanup done"
 
-PYTHON_BIN="$(pick_python)"
-if [ -z "$PYTHON_BIN" ]; then
-  echo "[e2e_fullstack] python not found"
-  exit 1
-fi
-
-if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
-  # shellcheck disable=SC1091
-  source "$PROJECT_ROOT/.venv/bin/activate"
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+  # Always prefer project venv python to avoid interpreter mismatch.
+  PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+  if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.venv/bin/activate"
+  fi
+else
+  PYTHON_BIN="$(pick_python)"
+  if [ -z "$PYTHON_BIN" ]; then
+    echo "[e2e_fullstack] python not found"
+    exit 1
+  fi
 fi
 
 "$PYTHON_BIN" - <<'PY'
@@ -141,6 +145,11 @@ import sys
 assert sys.version_info >= (3, 10), "Python version must be >= 3.10"
 print("Python version OK")
 PY
+
+if ! "$PYTHON_BIN" -c "import langgraph" >/dev/null 2>&1; then
+  log "langgraph missing in selected python, installing backend requirements"
+  "$PYTHON_BIN" -m pip install -r "$PROJECT_ROOT/backend/requirements.txt"
+fi
 
 if ! command -v redis-cli >/dev/null 2>&1; then
   echo "[e2e_fullstack] redis-cli not found"

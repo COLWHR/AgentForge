@@ -1,6 +1,6 @@
 """
 Builtin adapter for AgentForge plugin marketplace.
-Provides built-in tools: echo, python_exec.
+Provides document-aligned aliases such as echo_tool and python_executor.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import asyncio
 import json
 from typing import Any
 
+from backend.services.sandbox_service import sandbox_service
 from plugin_marketplace.adapters.base import BaseAdapter
 from plugin_marketplace.interfaces import ToolDescriptor, ToolType
 
@@ -16,8 +17,14 @@ from plugin_marketplace.interfaces import ToolDescriptor, ToolType
 class EchoTool:
     """Echo tool - returns the input text."""
 
-    name = "echo"
+    aliases = ("echo", "echo_tool")
     description = "Echo back the input text"
+    input_schema = {
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "Text to echo back."}},
+        "required": ["text"],
+        "additionalProperties": False,
+    }
 
     async def execute(self, arguments: dict) -> str:
         text = arguments.get("text", "")
@@ -27,26 +34,40 @@ class EchoTool:
 class PythonExecTool:
     """Python execution tool."""
 
-    name = "python_exec"
+    aliases = ("python_exec", "python_executor")
     description = "Execute Python code and return the result"
+    input_schema = {
+        "type": "object",
+        "properties": {"code": {"type": "string", "description": "Python code to execute."}},
+        "required": ["code"],
+        "additionalProperties": False,
+    }
 
     async def execute(self, arguments: dict) -> str:
         code = arguments.get("code", "")
-        try:
-            import sys
-            from io import StringIO
+        result = sandbox_service.execute_python(code, {})
+        return json.dumps(result.get("observation"))
 
-            old_stdout = sys.stdout
-            sys.stdout = StringIO()
-            try:
-                exec(code, {"__name__": "__main__"})
-                output = sys.stdout.getvalue()
-            finally:
-                sys.stdout = old_stdout
 
-            return json.dumps({"success": True, "output": output})
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e)})
+class PythonAddTool:
+    """Add two integers inside the sandbox."""
+
+    aliases = ("python_add_tool",)
+    description = "Add two integers and return the sum"
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "a": {"type": "integer", "description": "First integer."},
+            "b": {"type": "integer", "description": "Second integer."},
+        },
+        "required": ["a", "b"],
+        "additionalProperties": False,
+    }
+
+    async def execute(self, arguments: dict) -> str:
+        code = "result = {'result': input_data['a'] + input_data['b']}"
+        result = sandbox_service.execute_python(code, {"a": arguments.get("a"), "b": arguments.get("b")})
+        return json.dumps(result.get("observation"))
 
 
 class BuiltinAdapter(BaseAdapter):
@@ -60,6 +81,7 @@ class BuiltinAdapter(BaseAdapter):
         self._tools: dict[str, Any] = {
             "echo": EchoTool(),
             "python_exec": PythonExecTool(),
+            "python_add_tool": PythonAddTool(),
         }
 
     @property
@@ -70,25 +92,27 @@ class BuiltinAdapter(BaseAdapter):
         return await self.list_tools()
 
     async def execute(self, tool_name: str, arguments: dict) -> str:
-        tool = self._tools.get(tool_name)
+        tool = self._resolve_tool(tool_name)
         if not tool:
             raise ValueError(f"Unknown builtin tool: {tool_name}")
         return await tool.execute(arguments)
 
     async def list_tools(self) -> list[ToolDescriptor]:
         descriptors = []
-        for tool_name, tool in self._tools.items():
-            descriptors.append(ToolDescriptor(
-                extension_id_value=self.extension_id,
-                name_value=tool_name,
-                description_value=tool.description,
-                tool_type_value="builtin",
-                input_schema_value={"type": "object"},
-            ))
+        for tool in self._tools.values():
+            for alias in tool.aliases:
+                descriptors.append(ToolDescriptor(
+                    extension_id_value=self.extension_id,
+                    name_value=alias,
+                    description_value=tool.description,
+                    tool_type_value="builtin",
+                    input_schema_value=tool.input_schema,
+                ))
         return descriptors
 
     async def get_tool(self, tool_name: str) -> ToolDescriptor | None:
-        if tool_name not in self._tools:
+        tool = self._resolve_tool(tool_name)
+        if tool is None:
             return None
         tools = await self.list_tools()
         return next((t for t in tools if t.name == tool_name), None)
@@ -101,3 +125,9 @@ class BuiltinAdapter(BaseAdapter):
 
     async def health_check(self) -> bool:
         return True  # Always healthy
+
+    def _resolve_tool(self, tool_name: str) -> Any | None:
+        for tool in self._tools.values():
+            if tool_name in tool.aliases:
+                return tool
+        return None

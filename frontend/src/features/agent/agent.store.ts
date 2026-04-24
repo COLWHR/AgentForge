@@ -20,6 +20,7 @@ interface AgentStoreState {
   selectAgent: (agent_id: string) => Promise<void>
   createAgent: (payload: CreateAgentPayload) => Promise<void>
   updateAgent: (agent_id: string, payload: UpdateAgentPayload) => Promise<void>
+  deleteAgent: (agent_id: string) => Promise<void>
   refreshCurrentAgent: () => Promise<void>
   resetCurrentAgent: () => void
 }
@@ -84,7 +85,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         is_agent_list_loading: false,
       }))
 
-      if (list.length === 0) {
+      const availableAgents = list.filter((agent) => agent.is_available && !agent.archived)
+      if (list.length === 0 || availableAgents.length === 0) {
+        saveRecentAgentId(null)
         get().resetCurrentAgent()
         set(() => ({
           agent_context_status: 'EMPTY',
@@ -107,7 +110,11 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
 
   createAgent: async (payload) => {
     const newAgent = await agentAdapter.createAgent(payload)
-    saveRecentAgentId(newAgent.id)
+    if (newAgent.is_available) {
+      saveRecentAgentId(newAgent.id)
+    } else {
+      saveRecentAgentId(null)
+    }
     set((state) => {
       const existingIndex = state.agent_list.findIndex((agent) => agent.id === newAgent.id)
       const nextList = [...state.agent_list]
@@ -122,7 +129,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         agent_list: nextList,
         current_agent_id: newAgent.id,
         current_agent_detail: newAgent,
-        agent_context_status: 'READY' as const,
+        agent_context_status: newAgent.is_available ? ('READY' as const) : ('ERROR' as const),
         is_agent_detail_loading: false,
       }
     })
@@ -130,19 +137,60 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
 
   updateAgent: async (agent_id, payload) => {
     const updated = await agentAdapter.updateAgent(agent_id, payload)
-    set((state) => ({
-      agent_list: state.agent_list.map((agent) => (agent.id === updated.id ? updated : agent)),
-      current_agent_id: updated.id,
-      current_agent_detail: updated,
-      agent_context_status: 'READY',
-      is_agent_detail_loading: false,
-    }))
-    saveRecentAgentId(updated.id)
+    set((state) => {
+      const isCurrent = state.current_agent_id === updated.id
+      return {
+        agent_list: state.agent_list.map((agent) => (agent.id === updated.id ? updated : agent)),
+        current_agent_id: isCurrent ? updated.id : state.current_agent_id,
+        current_agent_detail: isCurrent ? updated : state.current_agent_detail,
+        agent_context_status: isCurrent ? (updated.is_available ? 'READY' : 'ERROR') : state.agent_context_status,
+        is_agent_detail_loading: false,
+      }
+    })
+    if (get().current_agent_id === updated.id) {
+      saveRecentAgentId(updated.is_available ? updated.id : null)
+    }
+  },
+
+  deleteAgent: async (agent_id) => {
+    const deleted = await agentAdapter.deleteAgent(agent_id)
+    const wasCurrent = get().current_agent_id === deleted.id
+    if (wasCurrent) {
+      useExecutionStore.getState().resetExecution()
+    }
+    set((state) => {
+      const nextList = state.agent_list.filter((agent) => agent.id !== deleted.id)
+      return {
+        agent_list: nextList,
+        current_agent_id: wasCurrent ? null : state.current_agent_id,
+        current_agent_detail: wasCurrent ? null : state.current_agent_detail,
+        agent_context_status: wasCurrent ? 'EMPTY' : state.agent_context_status,
+        is_agent_detail_loading: false,
+      }
+    })
+    saveRecentAgentId(get().current_agent_id)
   },
 
   selectAgent: async (agent_id) => {
     const normalizedId = agent_id.trim()
     if (normalizedId.length === 0) {
+      return
+    }
+    const selected = get().agent_list.find((agent) => agent.id === normalizedId)
+    if (selected && !selected.is_available) {
+      useExecutionStore.getState().resetExecution()
+      saveRecentAgentId(null)
+      set(() => ({
+        current_agent_id: normalizedId,
+        current_agent_detail: selected,
+        is_agent_detail_loading: false,
+        agent_context_status: 'ERROR',
+      }))
+      notify.warning(
+        selected.availability_reason === null
+          ? '该 Agent 当前不可用，请先修复配置'
+          : `该 Agent 当前不可用：${selected.availability_reason}`,
+      )
       return
     }
 
@@ -177,6 +225,20 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           agent_context_status: 'ERROR',
         }))
         notify.error('Agent identity mismatch')
+        return
+      }
+      if (!detail.is_available) {
+        saveRecentAgentId(null)
+        set(() => ({
+          current_agent_detail: detail,
+          is_agent_detail_loading: false,
+          agent_context_status: 'ERROR',
+        }))
+        notify.warning(
+          detail.availability_reason === null
+            ? '当前 Agent 不可用，请先修复配置'
+            : `当前 Agent 不可用：${detail.availability_reason}`,
+        )
         return
       }
 

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Dict, List, Optional
 import openai
 from openai import AsyncOpenAI
@@ -28,12 +29,122 @@ class ModelGateway:
         )
 
     @staticmethod
-    def _raise_gateway_error(arc_code: ArcErrorCode, message: str, status_code: int = 502) -> None:
+    def _raise_gateway_error(
+        arc_code: ArcErrorCode,
+        message: str,
+        status_code: int = 502,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         raise ModelGatewayException(
             message=message,
             code=ResponseCode.MODEL_ERROR,
-            data={"error": {"code": arc_code.value, "message": message}},
+            data={
+                "error": {
+                    "code": arc_code.value,
+                    "message": message,
+                    "details": details,
+                }
+            },
         )
+
+    @staticmethod
+    def _extract_tool_names(tools: Optional[List[Dict[str, Any]]]) -> List[str]:
+        if not tools:
+            return []
+        tool_names = [
+            str(((tool.get("function") or {}).get("name", ""))).strip()
+            for tool in tools
+            if isinstance(tool, dict)
+        ]
+        return [name for name in tool_names if name]
+
+    @staticmethod
+    def _sanitize_tool_choice(tool_choice: Optional[Dict[str, Any] | str]) -> Optional[Dict[str, Any] | str]:
+        if tool_choice is None:
+            return None
+        if isinstance(tool_choice, (dict, str)):
+            return tool_choice
+        return str(tool_choice)
+
+    @staticmethod
+    def to_provider_tool_name(tool_id: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9_]+", "_", (tool_id or "").strip())
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        return normalized or "tool"
+
+    @staticmethod
+    def _build_tool_name_maps(
+        tools: Optional[List[Dict[str, Any]]],
+    ) -> tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, str]]:
+        if not tools:
+            return [], {}, {}
+
+        mapped_tools: List[Dict[str, Any]] = []
+        internal_to_provider: Dict[str, str] = {}
+        provider_to_internal: Dict[str, str] = {}
+        provider_name_counts: Dict[str, int] = {}
+
+        for raw_tool in tools:
+            if not isinstance(raw_tool, dict):
+                continue
+            function_payload = raw_tool.get("function") or {}
+            internal_tool_id = str(function_payload.get("name", "")).strip()
+            if not internal_tool_id:
+                mapped_tools.append(raw_tool)
+                continue
+
+            base_provider_name = ModelGateway.to_provider_tool_name(internal_tool_id)
+            count = provider_name_counts.get(base_provider_name, 0) + 1
+            provider_name_counts[base_provider_name] = count
+            provider_tool_name = base_provider_name if count == 1 else f"{base_provider_name}_{count}"
+
+            mapped_tool = dict(raw_tool)
+            mapped_function_payload = dict(function_payload)
+            mapped_function_payload["name"] = provider_tool_name
+            mapped_tool["function"] = mapped_function_payload
+            mapped_tools.append(mapped_tool)
+
+            internal_to_provider[internal_tool_id] = provider_tool_name
+            provider_to_internal[provider_tool_name] = internal_tool_id
+
+        return mapped_tools, internal_to_provider, provider_to_internal
+
+    @staticmethod
+    def _map_tool_choice_for_provider(
+        tool_choice: Optional[Dict[str, Any] | str],
+        internal_to_provider: Dict[str, str],
+    ) -> Optional[Dict[str, Any] | str]:
+        sanitized = ModelGateway._sanitize_tool_choice(tool_choice)
+        if not isinstance(sanitized, dict):
+            return sanitized
+        function_payload = sanitized.get("function")
+        if not isinstance(function_payload, dict):
+            return sanitized
+        internal_name = str(function_payload.get("name", "")).strip()
+        if not internal_name:
+            return sanitized
+        provider_name = internal_to_provider.get(internal_name)
+        if not provider_name:
+            return sanitized
+        mapped = dict(sanitized)
+        mapped_function = dict(function_payload)
+        mapped_function["name"] = provider_name
+        mapped["function"] = mapped_function
+        return mapped
+
+    @staticmethod
+    def _extract_provider_message(exc: Exception) -> str:
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            error_payload = body.get("error")
+            if isinstance(error_payload, dict):
+                message = error_payload.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+            message = body.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        return str(exc)
 
     async def chat(
         self,
@@ -42,6 +153,7 @@ class ModelGateway:
         provider_url: str,
         api_key: str,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any] | str] = None,
     ) -> GatewayResponse:
         validate_provider_url(provider_url)
         if not api_key.strip():
@@ -61,6 +173,18 @@ class ModelGateway:
                 payload["name"] = m.name
             if m.tool_call_id:
                 payload["tool_call_id"] = m.tool_call_id
+            if m.tool_calls:
+                payload["tool_calls"] = [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.function_name,
+                            "arguments": tool_call.function_arguments,
+                        },
+                    }
+                    for tool_call in m.tool_calls
+                ]
             openai_messages.append(payload)
 
         request_kwargs: Dict[str, Any] = {
@@ -69,31 +193,53 @@ class ModelGateway:
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
         }
+        internal_tool_names = self._extract_tool_names(tools)
+        mapped_tools, internal_to_provider_tool_name, provider_to_internal_tool_name = self._build_tool_name_maps(tools)
+        provider_tool_names = list(provider_to_internal_tool_name.keys())
+        mapped_tool_choice = self._map_tool_choice_for_provider(tool_choice, internal_to_provider_tool_name)
+
         if tools:
-            request_kwargs["tools"] = tools
-            request_kwargs["tool_choice"] = "auto"
+            request_kwargs["tools"] = mapped_tools
+            request_kwargs["tool_choice"] = mapped_tool_choice or "auto"
+
+        logger.bind(
+            event="gateway_before_provider_call",
+            internal_tool_ids=internal_tool_names,
+            provider_tool_names=provider_tool_names,
+        ).info("Sending tools to provider")
 
         try:
             response = await client.chat.completions.create(**request_kwargs)
             choice = response.choices[0]
             message = choice.message
             finish_reason = choice.finish_reason
+            raw_returned_function_names = [
+                raw_tool_call.function.name
+                for raw_tool_call in getattr(message, "tool_calls", []) or []
+                if getattr(raw_tool_call, "function", None) is not None
+            ]
+            logger.bind(
+                event="gateway_after_provider_call",
+                raw_returned_function_names=raw_returned_function_names,
+            ).info("Provider returned model response")
 
-            tool_call = None
+            tool_calls: List[GatewayToolCall] = []
             if getattr(message, "tool_calls", None):
-                first_call = message.tool_calls[0]
-                try:
-                    json.loads(first_call.function.arguments or "{}")
-                except Exception:
-                    self._raise_gateway_error(
-                        ArcErrorCode.INVALID_TOOL_CALL,
-                        "Model returned invalid tool call arguments",
+                for raw_tool_call in message.tool_calls:
+                    try:
+                        json.loads(raw_tool_call.function.arguments or "{}")
+                    except Exception:
+                        self._raise_gateway_error(
+                            ArcErrorCode.INVALID_TOOL_CALL,
+                            "Model returned invalid tool call arguments",
+                        )
+                    tool_calls.append(
+                        GatewayToolCall(
+                            id=raw_tool_call.id,
+                            function_name=raw_tool_call.function.name,
+                            function_arguments=raw_tool_call.function.arguments or "{}",
+                        )
                     )
-                tool_call = GatewayToolCall(
-                    id=first_call.id,
-                    function_name=first_call.function.name,
-                    function_arguments=first_call.function.arguments or "{}",
-                )
 
             content = message.content or ""
             usage = response.usage
@@ -111,7 +257,10 @@ class ModelGateway:
                 content=content,
                 token_usage=token_usage,
                 finish_reason=finish_reason,
-                tool_call=tool_call,
+                tool_calls=tool_calls,
+                tool_call=tool_calls[0] if tool_calls else None,
+                provider_tool_name_to_internal_id=provider_to_internal_tool_name,
+                internal_tool_id_to_provider_name=internal_to_provider_tool_name,
             )
         except openai.AuthenticationError as exc:
             logger.warning(f"Gateway auth failure: {str(exc)}")
@@ -127,13 +276,26 @@ class ModelGateway:
             self._raise_gateway_error(ArcErrorCode.NETWORK_ERROR, "Network error")
         except openai.BadRequestError as exc:
             message = str(exc)
+            error_details = {
+                "provider_status": getattr(exc, "status_code", 400),
+                "provider_message": self._extract_provider_message(exc),
+                "tool_names": provider_tool_names,
+                "internal_tool_names": internal_tool_names,
+                "tool_choice": self._sanitize_tool_choice(mapped_tool_choice or ("auto" if tools else None)),
+            }
             if "tool" in message.lower() and "support" in message.lower():
                 self._raise_gateway_error(
                     ArcErrorCode.MODEL_CAPABILITY_MISMATCH,
                     "Model does not support tool calling for this request",
                     status_code=422,
+                    details=error_details,
                 )
-            self._raise_gateway_error(ArcErrorCode.INVALID_TOOL_CALL, "Invalid tool call request", status_code=422)
+            self._raise_gateway_error(
+                ArcErrorCode.INVALID_TOOL_CALL,
+                "Invalid tool call request",
+                status_code=422,
+                details=error_details,
+            )
         except ModelGatewayException:
             raise
         except Exception as exc:
@@ -147,6 +309,7 @@ class ModelGateway:
         config: ModelConfig,
         provider_url: str,
         api_key: str,
+        tool_choice: Optional[Dict[str, Any] | str] = None,
     ) -> GatewayResponse:
         return await self.chat(
             messages=messages,
@@ -154,6 +317,7 @@ class ModelGateway:
             provider_url=provider_url,
             api_key=api_key,
             tools=tools,
+            tool_choice=tool_choice,
         )
 
 # Singleton instance

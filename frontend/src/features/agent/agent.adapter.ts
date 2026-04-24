@@ -22,6 +22,9 @@ export interface AgentDetail {
   tools: string[]
   constraints: Record<string, unknown>
   has_api_key: boolean
+  archived: boolean
+  is_available: boolean
+  availability_reason: string | null
 }
 
 export interface CreateAgentPayload {
@@ -48,6 +51,7 @@ export interface UpdateAgentPayload {
   capability_flags?: AgentCapabilityFlags
   tools?: string[]
   constraints?: Record<string, unknown>
+  archived?: boolean
 }
 
 interface CreateAgentResponse {
@@ -136,6 +140,12 @@ function mapAgentDetail(raw: unknown): AgentDetail {
     tools: asStringArray((raw.tools ?? legacyConfig.tools ?? []) as unknown, 'tools'),
     constraints: isRecord(raw.constraints) ? raw.constraints : isRecord(legacyConfig.constraints) ? legacyConfig.constraints : {},
     has_api_key: Boolean(raw.has_api_key ?? legacyConfig.has_api_key ?? legacyConfig.llm_api_key_encrypted),
+    archived: Boolean(raw.archived ?? legacyConfig.archived ?? false),
+    is_available: typeof raw.is_available === 'boolean' ? raw.is_available : true,
+    availability_reason:
+      raw.availability_reason === null || raw.availability_reason === undefined
+        ? null
+        : asString(raw.availability_reason, 'availability_reason'),
   }
 }
 
@@ -198,5 +208,13 @@ export const agentAdapter = {
       authMode: 'required',
     })
     return await this.fetchAgentDetail(agent_id)
+  },
+
+  async deleteAgent(agent_id: string): Promise<AgentDetail> {
+    const result = await apiClient.request<unknown>(`/agents/${agent_id}`, {
+      method: 'DELETE',
+      authMode: 'required',
+    })
+    return mapAgentDetail(result.data)
   },
 }

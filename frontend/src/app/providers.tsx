@@ -24,8 +24,9 @@ export function AppProviders({ children }: PropsWithChildren) {
       }
 
       const restoredAgentId = getRecentAgentIdFromStorage()
-      if (restoredAgentId !== null && postLoad.agent_list.some((agent) => agent.id === restoredAgentId)) {
-        await useAgentStore.getState().selectAgent(restoredAgentId)
+      const restoredAgent = restoredAgentId === null ? null : postLoad.agent_list.find((agent) => agent.id === restoredAgentId)
+      if (restoredAgent !== null && restoredAgent !== undefined && restoredAgent.is_available) {
+        await useAgentStore.getState().selectAgent(restoredAgent.id)
         return
       }
 

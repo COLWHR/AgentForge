@@ -6,7 +6,6 @@ import { LogsPage } from '../../pages/LogsPage'
 import { MarketplacePage } from '../../pages/MarketplacePage'
 import { NotFoundPage } from '../../pages/NotFoundPage'
 import { RunsPage } from '../../pages/RunsPage'
-import { SettingsPage } from '../../pages/SettingsPage'
 
 export const router = createBrowserRouter([
   {
@@ -18,7 +17,7 @@ export const router = createBrowserRouter([
       { path: 'runs', element: <RunsPage /> },
       { path: 'marketplace', element: <MarketplacePage /> },
       { path: 'logs', element: <LogsPage /> },
-      { path: 'settings', element: <SettingsPage /> },
+      { path: 'settings', element: <Navigate to="/agents" replace /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

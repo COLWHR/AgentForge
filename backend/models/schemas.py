@@ -44,6 +44,7 @@ class Message(BaseModel):
     content: Optional[str] = None
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
+    tool_calls: List["GatewayToolCall"] = Field(default_factory=list)
 
 class GatewayError(BaseModel):
     code: Union[ArcErrorCode, str]
@@ -54,7 +55,10 @@ class GatewayResponse(BaseModel):
     token_usage: TokenUsage
     finish_reason: Optional[str] = None
     error: Optional[GatewayError] = None
+    tool_calls: List["GatewayToolCall"] = Field(default_factory=list)
     tool_call: Optional["GatewayToolCall"] = None
+    provider_tool_name_to_internal_id: Dict[str, str] = Field(default_factory=dict)
+    internal_tool_id_to_provider_name: Dict[str, str] = Field(default_factory=dict)
 
 
 class GatewayToolCall(BaseModel):
@@ -185,6 +189,7 @@ class AgentUpdateRequest(BaseModel):
     capability_flags: Optional[AgentCapabilityFlags] = None
     tools: Optional[List[str]] = None
     constraints: Optional[Dict[str, Any]] = None
+    archived: Optional[bool] = None
 
     @field_validator("name", "description", "llm_provider_url", "llm_api_key", "llm_model_name")
     @classmethod
@@ -209,6 +214,9 @@ class AgentRead(BaseModel):
     tools: List[str]
     constraints: Dict[str, Any]
     has_api_key: bool
+    archived: bool = False
+    is_available: bool = True
+    availability_reason: Optional[str] = None
 
 class AgentCreateResponse(BaseModel):
     id: UUID4

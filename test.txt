@@ -1,8 +1,417 @@
-./scripts/start_sqlite_fullstack.sh
-
-2026.4.22 8:55
-- 已新增启动脚本： start_sqlite_fullstack.sh
-- 已实现：启动前自动清理旧进程（端口 8000/5173 + 相关 uvicorn/vite 进程）
-- 已实现：自动切换 SQLite 并初始化数据库（创建 agentforge_preview.db ，并执行表初始化）
-- 已实现：前后端启动后日志合并输出（ db/backend/frontend 三路带前缀聚合）
-- 已完成：脚本执行权限设置与语法检查（ bash -n 通过）
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % bash ./tests/e2e/start_fullstack_e2e.sh
+[e2e_fullstack] startup cleanup begin
+[e2e_fullstack] stopping redis-pidfile pid=91995
+[e2e_fullstack] startup cleanup done
+Python version OK
+[e2e_fullstack] redis already running
+[e2e_fullstack] starting backend on 127.0.0.1:8000
+[backend] 2026-04-22 19:31:30.435 | INFO     | backend.main:create_app:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Starting AgentForge-Backend-Service in dev mode
+[backend] 2026-04-22 19:31:30.435 | INFO     | backend.main:create_app:40 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Config loaded: ENV=dev, APP_NAME=AgentForge-Backend-Service, LOG_LEVEL=INFO
+[backend] INFO:     Started server process [3409]
+[backend] INFO:     Waiting for application startup.
+[backend] 2026-04-22 19:31:30.454 | INFO     | backend.main:on_startup:57 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing database tables...
+[backend] 2026-04-22 19:31:30.458 | INFO     | backend.main:on_startup:61 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Database tables initialized.
+[backend] 2026-04-22 19:31:30.458 | INFO     | backend.main:on_startup:65 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Registering tools...
+[backend] 2026-04-22 19:31:30.458 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: echo_tool
+[backend] 2026-04-22 19:31:30.458 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_add_tool
+[backend] 2026-04-22 19:31:30.459 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_executor
+[backend] 2026-04-22 19:31:30.459 | INFO     | backend.core.tool_runtime:lock:54 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - ToolRegistry locked.
+[backend] 2026-04-22 19:31:30.459 | INFO     | backend.main:on_startup:72 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registry locked.
+[backend] 2026-04-22 19:31:30.459 | INFO     | backend.main:on_startup:76 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing plugin marketplace...
+[backend] 2026-04-22 19:31:30.491 | INFO     | backend.main:on_startup:84 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Plugin marketplace initialized.
+[backend] INFO:     Application startup complete.
+[backend] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[backend] 2026-04-22 19:31:30.507 | INFO     | backend.api.middleware:dispatch:30 - [req=21c4ad70-8494-4d30-a6d0-a014c18b2f63 user= team= mode=unknown path=/health resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/health
+[backend] 2026-04-22 19:31:30.508 | INFO     | backend.api.middleware:dispatch:37 - [req=21c4ad70-8494-4d30-a6d0-a014c18b2f63 user= team= mode=unknown path=/health resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/health - Status: 200 - Duration: 0.0010s
+[backend] INFO:     127.0.0.1:60623 - "GET /health HTTP/1.1" 200 OK
+[e2e_fullstack] starting frontend after backend is ready
+[frontend] 
+[frontend] > frontend@0.0.0 dev
+[frontend] > vite --host 127.0.0.1 --port 5173 --strictPort
+[frontend] 
+[frontend] 
+[frontend]   VITE v8.0.9  ready in 107 ms
+[frontend] 
+[frontend]   ➜  Local:   http://127.0.0.1:5173/
+[e2e_fullstack] services ready: backend=http://127.0.0.1:8000, frontend=http://127.0.0.1:5173
+[e2e_fullstack] sqlite db: /Users/laosun/Documents/personal_projects/AgentForge-qshuai/agentforge_preview.db
+[e2e_fullstack] press Ctrl+C to stop all
+[backend] INFO:     127.0.0.1:60659 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:60660 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:45.938 | INFO     | backend.api.middleware:dispatch:30 - [req=ccbb9fc2-33bd-447c-a352-8f49feba88a3 user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-22 19:31:45.944 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=ccbb9fc2-33bd-447c-a352-8f49feba88a3 user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-22 19:31:45.944 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=ccbb9fc2-33bd-447c-a352-8f49feba88a3 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:45.950 | INFO     | backend.api.middleware:dispatch:30 - [req=d9fed85d-595a-47bc-8afa-0e601824c62b user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-22 19:31:45.950 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=d9fed85d-595a-47bc-8afa-0e601824c62b user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-22 19:31:45.950 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=d9fed85d-595a-47bc-8afa-0e601824c62b user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:45.955 | INFO     | backend.api.middleware:dispatch:37 - [req=ccbb9fc2-33bd-447c-a352-8f49feba88a3 user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0158s
+[backend] INFO:     127.0.0.1:60659 - "GET /agents HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:45.957 | INFO     | backend.api.middleware:dispatch:37 - [req=d9fed85d-595a-47bc-8afa-0e601824c62b user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0071s
+[backend] INFO:     127.0.0.1:60660 - "GET /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:60659 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:45.966 | INFO     | backend.api.middleware:dispatch:30 - [req=f0301d28-86f5-4aeb-b245-cb901c8adb7d user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.967 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=f0301d28-86f5-4aeb-b245-cb901c8adb7d user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.968 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=f0301d28-86f5-4aeb-b245-cb901c8adb7d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:45.971 | INFO     | backend.api.routes.agents:get_agent:92 - [req=f0301d28-86f5-4aeb-b245-cb901c8adb7d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.971 | INFO     | backend.api.middleware:dispatch:37 - [req=f0301d28-86f5-4aeb-b245-cb901c8adb7d user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0049s
+[backend] INFO:     127.0.0.1:60660 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:45.973 | INFO     | backend.api.middleware:dispatch:30 - [req=779a52fe-e6d0-48a8-b0d3-685b6b435605 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.973 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=779a52fe-e6d0-48a8-b0d3-685b6b435605 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.973 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=779a52fe-e6d0-48a8-b0d3-685b6b435605 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:45.976 | INFO     | backend.api.routes.agents:get_agent:92 - [req=779a52fe-e6d0-48a8-b0d3-685b6b435605 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:45.976 | INFO     | backend.api.middleware:dispatch:37 - [req=779a52fe-e6d0-48a8-b0d3-685b6b435605 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0029s
+[backend] INFO:     127.0.0.1:60659 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:60685 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:54.869 | INFO     | backend.api.middleware:dispatch:30 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Incoming request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-22 19:31:54.871 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_entry resource_id=*] - auth entry log: POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-22 19:31:54.871 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:54.874 | INFO     | backend.services.competition_manager_service:check_team_rate_limit:57 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip rate limit validation
+[backend] 2026-04-22 19:31:54.874 | INFO     | backend.services.competition_manager_service:check_team_token_limit:70 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip token limit validation
+[backend] 2026-04-22 19:31:54.874 | INFO     | backend.api.routes.agents:execute_agent:162 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=execution_record resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - execution trace log: start execute agent=79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-22 19:31:54.907 | INFO     | backend.services.execution_log_service:start_execution:36 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log started: 5f96aaac-1edf-4f92-998a-d78ed11438bf
+[backend] 2026-04-22 19:31:54.908 | INFO     | backend.services.langgraph_execution_strategy:run:149 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution started
+[backend] 2026-04-22 19:31:54.928 | INFO     | backend.services.langgraph_execution_strategy:call_model:379 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Calling model gateway
+[backend] 2026-04-22 19:31:55.973 | INFO     | backend.services.execution_log_service:complete_execution:150 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log completed: 5f96aaac-1edf-4f92-998a-d78ed11438bf | Status: FAILED
+[backend] 2026-04-22 19:31:55.977 | INFO     | backend.api.middleware:dispatch:37 - [req=2959e076-f0e7-4e63-9518-dd71e94908d8 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Completed request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute - Status: 200 - Duration: 1.1071s
+[backend] INFO:     127.0.0.1:60685 - "POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:60685 - "OPTIONS /executions/5f96aaac-1edf-4f92-998a-d78ed11438bf HTTP/1.1" 200 OK
+[backend] 2026-04-22 19:31:55.993 | INFO     | backend.api.middleware:dispatch:30 - [req=428e29eb-d210-4b97-911d-054e931d5bef user= team= mode=unknown path=/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf
+[backend] 2026-04-22 19:31:55.995 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=428e29eb-d210-4b97-911d-054e931d5bef user= team= mode=unknown path=/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf resource_type=auth_entry resource_id=*] - auth entry log: GET /executions/5f96aaac-1edf-4f92-998a-d78ed11438bf
+[backend] 2026-04-22 19:31:55.995 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=428e29eb-d210-4b97-911d-054e931d5bef user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-22 19:31:56.001 | INFO     | backend.api.routes.executions:get_execution:25 - [req=428e29eb-d210-4b97-911d-054e931d5bef user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf resource_type=execution_record resource_id=5f96aaac-1edf-4f92-998a-d78ed11438bf] - resource access log: read execution record 5f96aaac-1edf-4f92-998a-d78ed11438bf
+[backend] 2026-04-22 19:31:56.002 | INFO     | backend.api.middleware:dispatch:37 - [req=428e29eb-d210-4b97-911d-054e931d5bef user= team= mode=unknown path=/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/executions/5f96aaac-1edf-4f92-998a-d78ed11438bf - Status: 200 - Duration: 0.0082s
+[backend] INFO:     127.0.0.1:60685 - "GET /executions/5f96aaac-1edf-4f92-998a-d78ed11438bf HTTP/1.1" 200 OK
+[frontend] 8:13:52 PM [vite] (client) hmr update /src/styles/globals.css, /src/app/providers.tsx, /src/components/workspace/chat/ChatComposer.tsx, /src/components/workspace/layout/WorkspaceRail.tsx, /src/components/workspace/main/ContextHeader.tsx, /src/components/workspace/layout/CopilotPanel.tsx, /src/components/workspace/main/WorkspaceView.tsx
+[frontend] 8:14:00 PM [vite] (client) hmr update /src/app/providers.tsx, /src/components/workspace/chat/ChatComposer.tsx, /src/styles/globals.css
+[frontend] 8:14:06 PM [vite] (client) hmr update /src/app/providers.tsx, /src/components/workspace/chat/ChatComposer.tsx, /src/components/workspace/layout/WorkspaceRail.tsx, /src/components/workspace/main/ContextHeader.tsx, /src/components/workspace/layout/CopilotPanel.tsx, /src/components/workspace/main/WorkspaceView.tsx, /src/styles/globals.css
+[frontend] 8:14:22 PM [vite] (client) hmr update /src/styles/globals.css, /src/components/workspace/debug/ReActDebugPanel.tsx
+[frontend] 8:14:35 PM [vite] (client) hmr update /src/styles/globals.css, /src/components/workspace/layout/CopilotPanel.tsx
+[frontend] 8:14:58 PM [vite] (client) hmr update /src/app/providers.tsx, /src/styles/globals.css
+^C[e2e_fullstack] stopping frontend pid=3415
+[backend] INFO:     Shutting down
+[backend] INFO:     Waiting for application shutdown.
+[backend] INFO:     Application shutdown complete.
+[backend] INFO:     Finished server process [3409]
+^C[e2e_fullstack] stopping backend pid=3409
+[e2e_fullstack] stopping frontend-tail pid=3408
+^C[e2e_fullstack] stopping backend-tail pid=3406
+[e2e_fullstack] backend process exited
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % 
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % bash ./tests/e2e/start_fullstack_e2e.sh
+[e2e_fullstack] startup cleanup begin
+[e2e_fullstack] stopping redis-pidfile pid=3362
+[e2e_fullstack] startup cleanup done
+Python version OK
+[e2e_fullstack] redis already running
+[e2e_fullstack] starting backend on 127.0.0.1:8000
+[backend] 2026-04-23 10:13:01.570 | INFO     | backend.main:create_app:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Starting AgentForge-Backend-Service in dev mode
+[backend] 2026-04-23 10:13:01.570 | INFO     | backend.main:create_app:40 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Config loaded: ENV=dev, APP_NAME=AgentForge-Backend-Service, LOG_LEVEL=INFO
+[backend] INFO:     Started server process [73355]
+[backend] INFO:     Waiting for application startup.
+[backend] 2026-04-23 10:13:01.590 | INFO     | backend.main:on_startup:57 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing database tables...
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.main:on_startup:61 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Database tables initialized.
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.main:on_startup:65 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Registering tools...
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: echo_tool
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_add_tool
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_executor
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.core.tool_runtime:lock:54 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - ToolRegistry locked.
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.main:on_startup:72 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registry locked.
+[backend] 2026-04-23 10:13:01.601 | INFO     | backend.main:on_startup:76 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing plugin marketplace...
+[backend] 2026-04-23 10:13:01.634 | INFO     | backend.main:on_startup:84 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Plugin marketplace initialized.
+[backend] INFO:     Application startup complete.
+[backend] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[backend] 2026-04-23 10:13:02.517 | INFO     | backend.api.middleware:dispatch:30 - [req=9692667c-08b5-4b1c-b1ee-a651648276db user= team= mode=unknown path=/health resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/health
+[backend] 2026-04-23 10:13:02.518 | INFO     | backend.api.middleware:dispatch:37 - [req=9692667c-08b5-4b1c-b1ee-a651648276db user= team= mode=unknown path=/health resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/health - Status: 200 - Duration: 0.0012s
+[backend] INFO:     127.0.0.1:50999 - "GET /health HTTP/1.1" 200 OK
+[e2e_fullstack] starting frontend after backend is ready
+[frontend] 
+[frontend] > frontend@0.0.0 dev
+[frontend] > vite --host 127.0.0.1 --port 5173 --strictPort
+[frontend] 
+[e2e_fullstack] frontend failed to start on 127.0.0.1:5173
+[e2e_fullstack] check log: /Users/laosun/Documents/personal_projects/AgentForge-qshuai/.tmp/e2e_fullstack/frontend.log
+[e2e_fullstack] stopping frontend pid=73380
+[e2e_fullstack] stopping backend pid=73355
+[backend] INFO:     Shutting down
+[backend] INFO:     Waiting for application shutdown.
+[backend] INFO:     Application shutdown complete.
+[backend] INFO:     Finished server process [73355]
+[e2e_fullstack] stopping frontend-tail pid=73354
+[e2e_fullstack] stopping backend-tail pid=73352
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % bash ./tests/e2e/start_fullstack_e2e.sh
+[e2e_fullstack] startup cleanup begin
+[e2e_fullstack] stopping redis-pidfile pid=73318
+[e2e_fullstack] stopping legacy-vite pid=73402
+[e2e_fullstack] startup cleanup done
+Python version OK
+[e2e_fullstack] redis already running
+[e2e_fullstack] starting backend on 127.0.0.1:8000
+[backend] 2026-04-23 10:13:43.850 | INFO     | backend.main:create_app:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Starting AgentForge-Backend-Service in dev mode
+[backend] 2026-04-23 10:13:43.851 | INFO     | backend.main:create_app:40 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Config loaded: ENV=dev, APP_NAME=AgentForge-Backend-Service, LOG_LEVEL=INFO
+[backend] INFO:     Started server process [73895]
+[backend] INFO:     Waiting for application startup.
+[backend] 2026-04-23 10:13:43.869 | INFO     | backend.main:on_startup:57 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing database tables...
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.main:on_startup:61 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Database tables initialized.
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.main:on_startup:65 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Registering tools...
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: echo_tool
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_add_tool
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_executor
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.core.tool_runtime:lock:54 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - ToolRegistry locked.
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.main:on_startup:72 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registry locked.
+[backend] 2026-04-23 10:13:43.874 | INFO     | backend.main:on_startup:76 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing plugin marketplace...
+[backend] 2026-04-23 10:13:43.905 | INFO     | backend.main:on_startup:84 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Plugin marketplace initialized.
+[backend] INFO:     Application startup complete.
+[backend] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[backend] 2026-04-23 10:13:43.951 | INFO     | backend.api.middleware:dispatch:30 - [req=e36a5fb7-5597-4a36-85f1-78c360c68e5e user= team= mode=unknown path=/health resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/health
+[backend] 2026-04-23 10:13:43.951 | INFO     | backend.api.middleware:dispatch:37 - [req=e36a5fb7-5597-4a36-85f1-78c360c68e5e user= team= mode=unknown path=/health resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/health - Status: 200 - Duration: 0.0007s
+[backend] INFO:     127.0.0.1:51228 - "GET /health HTTP/1.1" 200 OK
+[e2e_fullstack] starting frontend after backend is ready
+[frontend] 
+[frontend] > frontend@0.0.0 dev
+[frontend] > vite --host 127.0.0.1 --port 5173 --strictPort
+[frontend] 
+[frontend] 
+[frontend]   VITE v8.0.9  ready in 125 ms
+[frontend] 
+[frontend]   ➜  Local:   http://127.0.0.1:5173/
+[e2e_fullstack] services ready: backend=http://127.0.0.1:8000, frontend=http://127.0.0.1:5173
+[e2e_fullstack] sqlite db: /Users/laosun/Documents/personal_projects/AgentForge-qshuai/agentforge_preview.db
+[e2e_fullstack] press Ctrl+C to stop all
+[backend] INFO:     127.0.0.1:51287 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51288 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:13:49.090 | INFO     | backend.api.middleware:dispatch:30 - [req=f942ac0d-64b1-4f7e-8d08-e747ce1fb114 user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 10:13:49.092 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=f942ac0d-64b1-4f7e-8d08-e747ce1fb114 user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 10:13:49.092 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=f942ac0d-64b1-4f7e-8d08-e747ce1fb114 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:13:49.096 | INFO     | backend.api.middleware:dispatch:30 - [req=a75ee71f-9f80-4b17-a013-14ca872ab89f user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 10:13:49.096 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=a75ee71f-9f80-4b17-a013-14ca872ab89f user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 10:13:49.096 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=a75ee71f-9f80-4b17-a013-14ca872ab89f user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:13:49.100 | INFO     | backend.api.middleware:dispatch:37 - [req=f942ac0d-64b1-4f7e-8d08-e747ce1fb114 user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0096s
+[backend] INFO:     127.0.0.1:51287 - "GET /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:13:49.101 | INFO     | backend.api.middleware:dispatch:37 - [req=a75ee71f-9f80-4b17-a013-14ca872ab89f user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0051s
+[backend] INFO:     127.0.0.1:51288 - "GET /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51287 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:13:49.111 | INFO     | backend.api.middleware:dispatch:30 - [req=9a5e3e22-5dbc-4a4a-b9f0-7be07ba20956 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.112 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=9a5e3e22-5dbc-4a4a-b9f0-7be07ba20956 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.112 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=9a5e3e22-5dbc-4a4a-b9f0-7be07ba20956 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:13:49.114 | INFO     | backend.api.routes.agents:get_agent:92 - [req=9a5e3e22-5dbc-4a4a-b9f0-7be07ba20956 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.115 | INFO     | backend.api.middleware:dispatch:37 - [req=9a5e3e22-5dbc-4a4a-b9f0-7be07ba20956 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0039s
+[backend] INFO:     127.0.0.1:51288 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:13:49.116 | INFO     | backend.api.middleware:dispatch:30 - [req=97c33739-2f30-4d8a-a596-6bf88110bead user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.116 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=97c33739-2f30-4d8a-a596-6bf88110bead user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.116 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=97c33739-2f30-4d8a-a596-6bf88110bead user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:13:49.117 | INFO     | backend.api.routes.agents:get_agent:92 - [req=97c33739-2f30-4d8a-a596-6bf88110bead user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:13:49.118 | INFO     | backend.api.middleware:dispatch:37 - [req=97c33739-2f30-4d8a-a596-6bf88110bead user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0017s
+[backend] INFO:     127.0.0.1:51287 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51426 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:15:58.658 | INFO     | backend.api.middleware:dispatch:30 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Incoming request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-23 10:15:58.661 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_entry resource_id=*] - auth entry log: POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-23 10:15:58.661 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:15:58.664 | INFO     | backend.services.competition_manager_service:check_team_rate_limit:57 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip rate limit validation
+[backend] 2026-04-23 10:15:58.664 | INFO     | backend.services.competition_manager_service:check_team_token_limit:70 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip token limit validation
+[backend] 2026-04-23 10:15:58.664 | INFO     | backend.api.routes.agents:execute_agent:162 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=execution_record resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - execution trace log: start execute agent=79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:15:58.694 | INFO     | backend.services.execution_log_service:start_execution:36 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log started: 09007d3f-b684-4ce4-8499-1ff759193b5f
+[backend] 2026-04-23 10:15:58.695 | INFO     | backend.services.langgraph_execution_strategy:run:151 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution started
+[backend] 2026-04-23 10:15:58.712 | INFO     | backend.services.langgraph_execution_strategy:call_model:385 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Calling model gateway
+[backend] 2026-04-23 10:15:58.749 | INFO     | backend.services.model_gateway:chat:209 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sending tools to provider
+[backend] 2026-04-23 10:16:01.805 | INFO     | backend.services.model_gateway:chat:224 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Provider returned model response
+[backend] 2026-04-23 10:16:01.808 | INFO     | backend.services.langgraph_execution_strategy:call_model:450 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Model gateway returned
+[backend] 2026-04-23 10:16:01.810 | INFO     | backend.services.langgraph_execution_strategy:execute_tools:667 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Executing tool runtime
+[backend] 2026-04-23 10:16:01.816 | INFO     | backend.services.sandbox_service:execute_python:32 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sandbox execution request. Code length: 59
+[backend] 2026-04-23 10:16:01.856 | INFO     | backend.services.sandbox_service:execute_python:40 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sandbox execution success.
+[backend] 2026-04-23 10:16:01.863 | INFO     | backend.services.langgraph_execution_strategy:call_model:385 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Calling model gateway
+[backend] 2026-04-23 10:16:01.880 | INFO     | backend.services.model_gateway:chat:209 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sending tools to provider
+[backend] 2026-04-23 10:16:02.905 | INFO     | backend.services.model_gateway:chat:224 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Provider returned model response
+[backend] 2026-04-23 10:16:02.905 | INFO     | backend.services.langgraph_execution_strategy:call_model:450 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Model gateway returned
+[backend] 2026-04-23 10:16:02.914 | INFO     | backend.services.execution_log_service:complete_execution:154 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log completed: 09007d3f-b684-4ce4-8499-1ff759193b5f | Status: SUCCEEDED
+[backend] 2026-04-23 10:16:02.919 | INFO     | backend.api.middleware:dispatch:37 - [req=fe2f5719-c269-4dbe-a1be-6238c0dd5823 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Completed request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute - Status: 200 - Duration: 4.2602s
+[backend] INFO:     127.0.0.1:51426 - "POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51426 - "OPTIONS /executions/09007d3f-b684-4ce4-8499-1ff759193b5f HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:16:02.936 | INFO     | backend.api.middleware:dispatch:30 - [req=4726e361-0f72-4453-bb6d-93d8e1df2a0d user= team= mode=unknown path=/executions/09007d3f-b684-4ce4-8499-1ff759193b5f resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/executions/09007d3f-b684-4ce4-8499-1ff759193b5f
+[backend] 2026-04-23 10:16:02.937 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=4726e361-0f72-4453-bb6d-93d8e1df2a0d user= team= mode=unknown path=/executions/09007d3f-b684-4ce4-8499-1ff759193b5f resource_type=auth_entry resource_id=*] - auth entry log: GET /executions/09007d3f-b684-4ce4-8499-1ff759193b5f
+[backend] 2026-04-23 10:16:02.937 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=4726e361-0f72-4453-bb6d-93d8e1df2a0d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/09007d3f-b684-4ce4-8499-1ff759193b5f resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:16:02.945 | INFO     | backend.api.routes.executions:get_execution:25 - [req=4726e361-0f72-4453-bb6d-93d8e1df2a0d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/09007d3f-b684-4ce4-8499-1ff759193b5f resource_type=execution_record resource_id=09007d3f-b684-4ce4-8499-1ff759193b5f] - resource access log: read execution record 09007d3f-b684-4ce4-8499-1ff759193b5f
+[backend] 2026-04-23 10:16:02.945 | INFO     | backend.api.middleware:dispatch:37 - [req=4726e361-0f72-4453-bb6d-93d8e1df2a0d user= team= mode=unknown path=/executions/09007d3f-b684-4ce4-8499-1ff759193b5f resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/executions/09007d3f-b684-4ce4-8499-1ff759193b5f - Status: 200 - Duration: 0.0094s
+[backend] INFO:     127.0.0.1:51426 - "GET /executions/09007d3f-b684-4ce4-8499-1ff759193b5f HTTP/1.1" 200 OK
+[frontend] 10:17:21 AM [vite] (client) hmr update /src/styles/globals.css, /src/components/workspace/debug/ReActDebugPanel.tsx
+^C[e2e_fullstack] stopping frontend pid=73908
+[backend] INFO:     Shutting down
+[backend] INFO:     Waiting for application shutdown.
+[backend] INFO:     Application shutdown complete.
+[backend] INFO:     Finished server process [73895]
+[e2e_fullstack] stopping frontend-tail pid=73894
+[e2e_fullstack] stopping backend-tail pid=73892
+[e2e_fullstack] backend process exited
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % bash ./tests/e2e/start_fullstack_e2e.sh
+[e2e_fullstack] startup cleanup begin
+[e2e_fullstack] stopping redis-pidfile pid=73849
+[e2e_fullstack] startup cleanup done
+Python version OK
+[e2e_fullstack] redis already running
+[e2e_fullstack] starting backend on 127.0.0.1:8000
+[backend] 2026-04-23 10:23:28.403 | INFO     | backend.main:create_app:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Starting AgentForge-Backend-Service in dev mode
+[backend] 2026-04-23 10:23:28.404 | INFO     | backend.main:create_app:40 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Config loaded: ENV=dev, APP_NAME=AgentForge-Backend-Service, LOG_LEVEL=INFO
+[backend] INFO:     Started server process [80375]
+[backend] INFO:     Waiting for application startup.
+[backend] 2026-04-23 10:23:28.423 | INFO     | backend.main:on_startup:57 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing database tables...
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.main:on_startup:61 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Database tables initialized.
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.main:on_startup:65 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Registering tools...
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: echo_tool
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_add_tool
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_executor
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.core.tool_runtime:lock:54 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - ToolRegistry locked.
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.main:on_startup:72 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registry locked.
+[backend] 2026-04-23 10:23:28.428 | INFO     | backend.main:on_startup:76 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing plugin marketplace...
+[backend] 2026-04-23 10:23:28.467 | INFO     | backend.main:on_startup:84 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Plugin marketplace initialized.
+[backend] INFO:     Application startup complete.
+[backend] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[backend] 2026-04-23 10:23:29.317 | INFO     | backend.api.middleware:dispatch:30 - [req=ab3dba42-f56a-4eae-96bc-d3495b6846e7 user= team= mode=unknown path=/health resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/health
+[backend] 2026-04-23 10:23:29.318 | INFO     | backend.api.middleware:dispatch:37 - [req=ab3dba42-f56a-4eae-96bc-d3495b6846e7 user= team= mode=unknown path=/health resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/health - Status: 200 - Duration: 0.0011s
+[backend] INFO:     127.0.0.1:51878 - "GET /health HTTP/1.1" 200 OK
+[e2e_fullstack] starting frontend after backend is ready
+[frontend] 
+[frontend] > frontend@0.0.0 dev
+[frontend] > vite --host 127.0.0.1 --port 5173 --strictPort
+[frontend] 
+[frontend] 
+[frontend]   VITE v8.0.9  ready in 116 ms
+[frontend] 
+[frontend]   ➜  Local:   http://127.0.0.1:5173/
+[e2e_fullstack] services ready: backend=http://127.0.0.1:8000, frontend=http://127.0.0.1:5173
+[e2e_fullstack] sqlite db: /Users/laosun/Documents/personal_projects/AgentForge-qshuai/agentforge_preview.db
+[e2e_fullstack] press Ctrl+C to stop all
+[backend] INFO:     127.0.0.1:51963 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51964 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:24:10.145 | INFO     | backend.api.middleware:dispatch:30 - [req=e6147826-b0f7-4b85-9c27-1aa2bf8b895d user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 10:24:10.148 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=e6147826-b0f7-4b85-9c27-1aa2bf8b895d user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 10:24:10.148 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=e6147826-b0f7-4b85-9c27-1aa2bf8b895d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:24:10.155 | INFO     | backend.api.middleware:dispatch:30 - [req=f9c3f1c8-bb6e-4de9-af5d-78a426772a7d user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 10:24:10.155 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=f9c3f1c8-bb6e-4de9-af5d-78a426772a7d user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 10:24:10.155 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=f9c3f1c8-bb6e-4de9-af5d-78a426772a7d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:24:10.160 | INFO     | backend.api.middleware:dispatch:37 - [req=e6147826-b0f7-4b85-9c27-1aa2bf8b895d user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0143s
+[backend] INFO:     127.0.0.1:51963 - "GET /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:24:10.161 | INFO     | backend.api.middleware:dispatch:37 - [req=f9c3f1c8-bb6e-4de9-af5d-78a426772a7d user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0062s
+[backend] INFO:     127.0.0.1:51964 - "GET /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:51963 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:24:10.170 | INFO     | backend.api.middleware:dispatch:30 - [req=920ae9f6-b00e-4e83-9cb3-246287288a49 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.171 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=920ae9f6-b00e-4e83-9cb3-246287288a49 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.171 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=920ae9f6-b00e-4e83-9cb3-246287288a49 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:24:10.174 | INFO     | backend.api.routes.agents:get_agent:92 - [req=920ae9f6-b00e-4e83-9cb3-246287288a49 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.175 | INFO     | backend.api.middleware:dispatch:37 - [req=920ae9f6-b00e-4e83-9cb3-246287288a49 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0043s
+[backend] INFO:     127.0.0.1:51964 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 10:24:10.176 | INFO     | backend.api.middleware:dispatch:30 - [req=ccdc93c6-5764-4a79-821b-971fa6ddbe29 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.176 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=ccdc93c6-5764-4a79-821b-971fa6ddbe29 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.176 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=ccdc93c6-5764-4a79-821b-971fa6ddbe29 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 10:24:10.177 | INFO     | backend.api.routes.agents:get_agent:92 - [req=ccdc93c6-5764-4a79-821b-971fa6ddbe29 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 10:24:10.178 | INFO     | backend.api.middleware:dispatch:37 - [req=ccdc93c6-5764-4a79-821b-971fa6ddbe29 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0017s
+[backend] INFO:     127.0.0.1:51963 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+^C[e2e_fullstack] stopping frontend pid=80399
+[backend] INFO:     Shutting down
+[backend] INFO:     Waiting for application shutdown.
+[backend] INFO:     Application shutdown complete.
+[backend] INFO:     Finished server process [80375]
+^C[e2e_fullstack] stopping frontend-tail pid=80374
+^C[e2e_fullstack] stopping backend-tail pid=80372
+^C[e2e_fullstack] backend process exited
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % 
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % bash ./tests/e2e/start_fullstack_e2e.sh
+[e2e_fullstack] startup cleanup begin
+[e2e_fullstack] stopping redis-pidfile pid=80331
+[e2e_fullstack] startup cleanup done
+Python version OK
+[e2e_fullstack] redis already running
+[e2e_fullstack] starting backend on 127.0.0.1:8000
+[backend] 2026-04-23 11:05:55.894 | INFO     | backend.main:create_app:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Starting AgentForge-Backend-Service in dev mode
+[backend] 2026-04-23 11:05:55.894 | INFO     | backend.main:create_app:40 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Config loaded: ENV=dev, APP_NAME=AgentForge-Backend-Service, LOG_LEVEL=INFO
+[backend] INFO:     Started server process [95775]
+[backend] INFO:     Waiting for application startup.
+[backend] 2026-04-23 11:05:55.915 | INFO     | backend.main:on_startup:57 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing database tables...
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.main:on_startup:61 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Database tables initialized.
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.main:on_startup:65 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Registering tools...
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: echo_tool
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_add_tool
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.core.tool_runtime:register:39 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registered: python_executor
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.core.tool_runtime:lock:54 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - ToolRegistry locked.
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.main:on_startup:72 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Tool registry locked.
+[backend] 2026-04-23 11:05:55.921 | INFO     | backend.main:on_startup:76 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Initializing plugin marketplace...
+[backend] 2026-04-23 11:05:55.951 | INFO     | backend.main:on_startup:84 - [req=system user= team= mode=unknown path= resource_type= resource_id=] - Plugin marketplace initialized.
+[backend] INFO:     Application startup complete.
+[backend] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[backend] 2026-04-23 11:05:56.870 | INFO     | backend.api.middleware:dispatch:30 - [req=b8af0b24-a9ce-44a2-9cb1-949edf2e03fb user= team= mode=unknown path=/health resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/health
+[backend] 2026-04-23 11:05:56.871 | INFO     | backend.api.middleware:dispatch:37 - [req=b8af0b24-a9ce-44a2-9cb1-949edf2e03fb user= team= mode=unknown path=/health resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/health - Status: 200 - Duration: 0.0008s
+[backend] INFO:     127.0.0.1:55576 - "GET /health HTTP/1.1" 200 OK
+[e2e_fullstack] starting frontend after backend is ready
+[frontend] 
+[frontend] > frontend@0.0.0 dev
+[frontend] > vite --host 127.0.0.1 --port 5173 --strictPort
+[frontend] 
+[frontend] 
+[frontend]   VITE v8.0.9  ready in 194 ms
+[frontend] 
+[frontend]   ➜  Local:   http://127.0.0.1:5173/
+[e2e_fullstack] services ready: backend=http://127.0.0.1:8000, frontend=http://127.0.0.1:5173
+[e2e_fullstack] sqlite db: /Users/laosun/Documents/personal_projects/AgentForge-qshuai/agentforge_preview.db
+[e2e_fullstack] press Ctrl+C to stop all
+[backend] INFO:     127.0.0.1:55589 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:55590 - "OPTIONS /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:05:58.442 | INFO     | backend.api.middleware:dispatch:30 - [req=4afc4827-e864-4391-85f3-339374172c7d user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 11:05:58.446 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=4afc4827-e864-4391-85f3-339374172c7d user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 11:05:58.447 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=4afc4827-e864-4391-85f3-339374172c7d user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:05:58.453 | INFO     | backend.api.middleware:dispatch:30 - [req=caae7f49-5dfd-4f92-adef-44a8c9a1dd03 user= team= mode=unknown path=/agents resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents
+[backend] 2026-04-23 11:05:58.453 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=caae7f49-5dfd-4f92-adef-44a8c9a1dd03 user= team= mode=unknown path=/agents resource_type=auth_entry resource_id=*] - auth entry log: GET /agents
+[backend] 2026-04-23 11:05:58.453 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=caae7f49-5dfd-4f92-adef-44a8c9a1dd03 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:05:58.457 | INFO     | backend.api.middleware:dispatch:37 - [req=4afc4827-e864-4391-85f3-339374172c7d user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0144s
+[backend] INFO:     127.0.0.1:55589 - "GET /agents HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:05:58.457 | INFO     | backend.api.middleware:dispatch:37 - [req=caae7f49-5dfd-4f92-adef-44a8c9a1dd03 user= team= mode=unknown path=/agents resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents - Status: 200 - Duration: 0.0048s
+[backend] INFO:     127.0.0.1:55590 - "GET /agents HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:55589 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:05:58.469 | INFO     | backend.api.middleware:dispatch:30 - [req=e5adcb53-5c0f-4500-9158-4f4d0f552971 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.470 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=e5adcb53-5c0f-4500-9158-4f4d0f552971 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.470 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=e5adcb53-5c0f-4500-9158-4f4d0f552971 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:05:58.476 | INFO     | backend.api.middleware:dispatch:30 - [req=172fd085-33a5-44c8-8588-e1de3b11e5c7 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.476 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=172fd085-33a5-44c8-8588-e1de3b11e5c7 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_entry resource_id=*] - auth entry log: GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.476 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=172fd085-33a5-44c8-8588-e1de3b11e5c7 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:05:58.478 | INFO     | backend.api.routes.agents:get_agent:92 - [req=e5adcb53-5c0f-4500-9158-4f4d0f552971 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.479 | INFO     | backend.api.middleware:dispatch:37 - [req=e5adcb53-5c0f-4500-9158-4f4d0f552971 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0099s
+[backend] INFO:     127.0.0.1:55590 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:05:58.481 | INFO     | backend.api.routes.agents:get_agent:92 - [req=172fd085-33a5-44c8-8588-e1de3b11e5c7 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type=agent resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - resource access log: read agent 79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:05:58.482 | INFO     | backend.api.middleware:dispatch:37 - [req=172fd085-33a5-44c8-8588-e1de3b11e5c7 user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074 - Status: 200 - Duration: 0.0057s
+[backend] INFO:     127.0.0.1:55589 - "GET /agents/79af18c1-2874-40d7-8b1c-a580b01a1074 HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:55630 - "OPTIONS /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:06:11.473 | INFO     | backend.api.middleware:dispatch:30 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Incoming request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-23 11:06:11.477 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_entry resource_id=*] - auth entry log: POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute
+[backend] 2026-04-23 11:06:11.477 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:06:11.482 | INFO     | backend.services.competition_manager_service:check_team_rate_limit:57 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip rate limit validation
+[backend] 2026-04-23 11:06:11.482 | INFO     | backend.services.competition_manager_service:check_team_token_limit:70 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=runtime_quota_context resource_id=00000000-0000-0000-0000-000000000001] - dev bypass quota guard: skip token limit validation
+[backend] 2026-04-23 11:06:11.482 | INFO     | backend.api.routes.agents:execute_agent:162 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type=execution_record resource_id=79af18c1-2874-40d7-8b1c-a580b01a1074] - execution trace log: start execute agent=79af18c1-2874-40d7-8b1c-a580b01a1074
+[backend] 2026-04-23 11:06:11.528 | INFO     | backend.services.execution_log_service:start_execution:36 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log started: 191edf19-9fa8-4995-af01-762cd331c699
+[backend] 2026-04-23 11:06:11.528 | INFO     | backend.services.langgraph_execution_strategy:run:151 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution started
+[backend] 2026-04-23 11:06:11.550 | INFO     | backend.services.langgraph_execution_strategy:call_model:385 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Calling model gateway
+[backend] 2026-04-23 11:06:11.602 | INFO     | backend.services.model_gateway:chat:209 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sending tools to provider
+[backend] 2026-04-23 11:06:14.200 | INFO     | backend.services.model_gateway:chat:224 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Provider returned model response
+[backend] 2026-04-23 11:06:14.203 | INFO     | backend.services.langgraph_execution_strategy:call_model:450 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Model gateway returned
+[backend] 2026-04-23 11:06:14.204 | INFO     | backend.services.langgraph_execution_strategy:execute_tools:667 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Executing tool runtime
+[backend] 2026-04-23 11:06:14.208 | INFO     | backend.services.sandbox_service:execute_python:32 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sandbox execution request. Code length: 59
+[backend] 2026-04-23 11:06:14.246 | INFO     | backend.services.sandbox_service:execute_python:40 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sandbox execution success.
+[backend] 2026-04-23 11:06:14.254 | INFO     | backend.services.langgraph_execution_strategy:call_model:385 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Calling model gateway
+[backend] 2026-04-23 11:06:14.271 | INFO     | backend.services.model_gateway:chat:209 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Sending tools to provider
+[backend] 2026-04-23 11:06:15.817 | INFO     | backend.services.model_gateway:chat:224 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Provider returned model response
+[backend] 2026-04-23 11:06:15.818 | INFO     | backend.services.langgraph_execution_strategy:call_model:450 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Model gateway returned
+[backend] 2026-04-23 11:06:15.826 | INFO     | backend.services.execution_log_service:complete_execution:154 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Execution log completed: 191edf19-9fa8-4995-af01-762cd331c699 | Status: SUCCEEDED
+[backend] 2026-04-23 11:06:15.830 | INFO     | backend.api.middleware:dispatch:37 - [req=bd30b5ee-502d-4c7c-b43a-f6080a25153a user= team= mode=unknown path=/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute resource_type= resource_id=] - Completed request: POST http://127.0.0.1:8000/agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute - Status: 200 - Duration: 4.3568s
+[backend] INFO:     127.0.0.1:55630 - "POST /agents/79af18c1-2874-40d7-8b1c-a580b01a1074/execute HTTP/1.1" 200 OK
+[backend] INFO:     127.0.0.1:55630 - "OPTIONS /executions/191edf19-9fa8-4995-af01-762cd331c699 HTTP/1.1" 200 OK
+[backend] 2026-04-23 11:06:15.844 | INFO     | backend.api.middleware:dispatch:30 - [req=87f02d55-d836-42f9-9eb4-2c2bed8df982 user= team= mode=unknown path=/executions/191edf19-9fa8-4995-af01-762cd331c699 resource_type= resource_id=] - Incoming request: GET http://127.0.0.1:8000/executions/191edf19-9fa8-4995-af01-762cd331c699
+[backend] 2026-04-23 11:06:15.845 | INFO     | backend.api.dependencies:resolve_auth_context:20 - [req=87f02d55-d836-42f9-9eb4-2c2bed8df982 user= team= mode=unknown path=/executions/191edf19-9fa8-4995-af01-762cd331c699 resource_type=auth_entry resource_id=*] - auth entry log: GET /executions/191edf19-9fa8-4995-af01-762cd331c699
+[backend] 2026-04-23 11:06:15.845 | INFO     | backend.api.dependencies:resolve_auth_context:47 - [req=87f02d55-d836-42f9-9eb4-2c2bed8df982 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/191edf19-9fa8-4995-af01-762cd331c699 resource_type=auth_dev_bypass resource_id=dev-user] - dev bypass hit log
+[backend] 2026-04-23 11:06:15.856 | INFO     | backend.api.routes.executions:get_execution:25 - [req=87f02d55-d836-42f9-9eb4-2c2bed8df982 user=dev-user team=00000000-0000-0000-0000-000000000001 mode=dev_bypass path=/executions/191edf19-9fa8-4995-af01-762cd331c699 resource_type=execution_record resource_id=191edf19-9fa8-4995-af01-762cd331c699] - resource access log: read execution record 191edf19-9fa8-4995-af01-762cd331c699
+[backend] 2026-04-23 11:06:15.856 | INFO     | backend.api.middleware:dispatch:37 - [req=87f02d55-d836-42f9-9eb4-2c2bed8df982 user= team= mode=unknown path=/executions/191edf19-9fa8-4995-af01-762cd331c699 resource_type= resource_id=] - Completed request: GET http://127.0.0.1:8000/executions/191edf19-9fa8-4995-af01-762cd331c699 - Status: 200 - Duration: 0.0120s
+[backend] INFO:     127.0.0.1:55630 - "GET /executions/191edf19-9fa8-4995-af01-762cd331c699 HTTP/1.1" 200 OK
+^C[e2e_fullstack] stopping frontend pid=95790
+[backend] INFO:     Shutting down
+[backend] INFO:     Waiting for application shutdown.
+[backend] INFO:     Application shutdown complete.
+[backend] INFO:     Finished server process [95775]
+[e2e_fullstack] stopping frontend-tail pid=95774
+[e2e_fullstack] stopping backend-tail pid=95772
+[e2e_fullstack] backend process exited
+(base) laosun@MacBook-Pro-3 AgentForge-qshuai % 

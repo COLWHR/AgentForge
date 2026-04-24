@@ -1,14 +1,16 @@
 import { Bot, User } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { cn } from '../../../lib/cn'
 
 interface MessageBubbleRichProps {
   role: 'assistant' | 'user'
-  content: string
+  content: ReactNode
   timestamp?: string
+  compact?: boolean
 }
 
-export function MessageBubbleRich({ role, content, timestamp }: MessageBubbleRichProps) {
+export function MessageBubbleRich({ role, content, timestamp, compact = false }: MessageBubbleRichProps) {
   const isAssistant = role === 'assistant'
 
   return (
@@ -31,10 +33,11 @@ export function MessageBubbleRich({ role, content, timestamp }: MessageBubbleRic
       <div
         className={cn(
           'max-w-[90%] rounded-token-lg px-3 py-2 text-sm',
+          compact && 'max-w-full text-xs',
           isAssistant ? 'bg-surface text-text-main shadow-token-sm border border-border' : 'bg-bg-soft text-text-main border border-border/50',
         )}
       >
-        <div className="whitespace-pre-wrap leading-relaxed">{content}</div>
+        <div className="leading-relaxed">{content}</div>
       </div>
     </div>
   )

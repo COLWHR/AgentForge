@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from backend.api.dependencies import get_current_user
 from backend.core.logging import logger
-from backend.core.exceptions import PermissionException
+from backend.core.exceptions import PermissionException, ValidationException
 from backend.models.schemas import AuthContext
 from backend.services.authorization_service import authorization_service
 
@@ -24,6 +24,7 @@ from plugin_marketplace.api.schemas import (
     ExtensionConnectionTestRequest,
     ExtensionConnectionTestResponse,
 )
+from plugin_marketplace.exceptions import ToolBindingValidationError
 def create_router() -> APIRouter:
     """
     Create and return the plugin marketplace FastAPI router.
@@ -241,12 +242,23 @@ def create_router() -> APIRouter:
         try:
             await authorization_service.ensure_agent_ownership(auth, uuid.UUID(agent_id), operation="bind_tools")
             marketplace_api = _marketplace_api(request)
-            await marketplace_api.bind_tools_to_agent(agent_id, payload.tool_ids)
+            result = await marketplace_api.bind_tools_to_agent(agent_id, payload.tool_ids)
             logger.bind(
                 resource_type="tool_binding",
                 resource_id=agent_id,
             ).info(f"resource access log: bind tools for agent={agent_id}")
-            return {"status": "ok", "agent_id": agent_id, "bound": len(payload.tool_ids)}
+            return {
+                "status": "ok",
+                "result_status": result.status,
+                "agent_id": agent_id,
+                "bound": len(result.bound_tool_ids),
+                "already_bound": len(result.already_bound_tool_ids),
+                "resolved_tool_ids": result.resolved_tool_ids,
+            }
+        except ToolBindingValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except ValidationException:
+            raise
         except PermissionException:
             raise
         except Exception as e:
@@ -263,12 +275,16 @@ def create_router() -> APIRouter:
         try:
             await authorization_service.ensure_agent_ownership(auth, uuid.UUID(agent_id), operation="unbind_tool")
             marketplace_api = _marketplace_api(request)
-            await marketplace_api.unbind_tools_from_agent(agent_id, [tool_id])
+            result = await marketplace_api.unbind_tools_from_agent(agent_id, [tool_id])
             logger.bind(
                 resource_type="tool_binding",
                 resource_id=agent_id,
             ).info(f"resource access log: unbind tool for agent={agent_id}")
-            return {"status": "ok"}
+            return {"status": "ok", "result_status": result.status, "unbound": len(result.unbound_tool_ids)}
+        except ToolBindingValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except ValidationException:
+            raise
         except PermissionException:
             raise
         except Exception as e:

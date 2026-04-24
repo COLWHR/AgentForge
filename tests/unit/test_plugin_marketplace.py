@@ -51,14 +51,21 @@ async def test_marketplace_seeds_manifests_and_executes_builtin_tool(tmp_path):
     manifest_ids = {item["id"] for item in manifests}
     assert {"github", "filesystem", "brave_search", "builtin"}.issubset(manifest_ids)
 
-    user_id = str(uuid.uuid4())
-    await api.install_extension("builtin", user_id, {})
     tools = await api.list_extension_tools("builtin")
     tool_ids = {tool["id"] for tool in tools}
     assert "builtin/echo" in tool_ids
+    assert "builtin/echo_tool" in tool_ids
+    assert "builtin/python_executor" in tool_ids
+
+    schemas = await api.get_tool_schemas()
+    schema_names = {tool["function"]["name"] for tool in schemas}
+    assert "builtin/python_executor" in schema_names
+
+    user_id = str(uuid.uuid4())
+    await api.install_extension("builtin", user_id, {})
 
     result = await api.execute_tool(
-        "builtin/echo",
+        "builtin/echo_tool",
         {"text": "hello"},
         context={"user_id": user_id},
     )
@@ -170,12 +177,12 @@ def test_marketplace_router_full_extension_lifecycle(tmp_path, monkeypatch):
         assert response.status_code == 200
         extension = response.json()
         assert extension["id"] == "builtin"
-        assert any(tool["id"] == "builtin/echo" for tool in extension["tools"])
+        assert any(tool["id"] == "builtin/echo_tool" for tool in extension["tools"])
 
         response = client.get("/api/v1/marketplace/extensions/builtin/tools")
         assert response.status_code == 200
         tools = response.json()
-        assert any(tool["id"] == "builtin/echo" for tool in tools)
+        assert any(tool["id"] == "builtin/echo_tool" for tool in tools)
 
         response = client.post(
             "/api/v1/marketplace/extensions/builtin/install",
@@ -191,7 +198,7 @@ def test_marketplace_router_full_extension_lifecycle(tmp_path, monkeypatch):
 
         response = client.post(
             f"/api/v1/marketplace/agents/{agent_id}/tools/bind",
-            json={"tool_ids": ["builtin/echo"]},
+            json={"tool_ids": ["echo_tool"]},
         )
         assert response.status_code == 200
         assert response.json()["bound"] == 1
@@ -199,17 +206,17 @@ def test_marketplace_router_full_extension_lifecycle(tmp_path, monkeypatch):
         response = client.get(f"/api/v1/marketplace/agents/{agent_id}/tools")
         assert response.status_code == 200
         agent_tools = response.json()["tools"]
-        assert any(tool["function"]["name"] == "builtin/echo" for tool in agent_tools)
+        assert any(tool["function"]["name"] == "builtin/echo_tool" for tool in agent_tools)
 
         response = client.get("/api/v1/marketplace/tools/schemas")
         assert response.status_code == 200
         schemas = response.json()["tools"]
-        assert any(tool["function"]["name"] == "builtin/echo" for tool in schemas)
+        assert any(tool["function"]["name"] == "builtin/echo_tool" for tool in schemas)
 
         response = client.post(
             "/api/v1/marketplace/tools/execute",
             json={
-                "tool_id": "builtin/echo",
+                "tool_id": "builtin/echo_tool",
                 "arguments": {"text": "route hello"},
                 "context": {"user_id": "demo-user"},
             },
@@ -217,7 +224,7 @@ def test_marketplace_router_full_extension_lifecycle(tmp_path, monkeypatch):
         assert response.status_code == 200
         assert json.loads(response.json()["result"])["echo"] == "route hello"
 
-        response = client.delete(f"/api/v1/marketplace/agents/{agent_id}/tools/builtin/echo")
+        response = client.delete(f"/api/v1/marketplace/agents/{agent_id}/tools/builtin/echo_tool")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
@@ -232,6 +239,41 @@ def test_marketplace_router_full_extension_lifecycle(tmp_path, monkeypatch):
         response = client.get("/api/v1/marketplace/users/demo-user/extensions")
         assert response.status_code == 200
         assert response.json() == []
+
+    asyncio.run(engine.dispose())
+
+
+def test_marketplace_router_rejects_unknown_tool_bindings(tmp_path, monkeypatch):
+    from plugin_marketplace import MarketplaceAPI
+    from plugin_marketplace.api.routes import create_router
+
+    async def _build_api():
+        db_path = tmp_path / "marketplace-invalid-bind-api.db"
+        database_url = f"sqlite+aiosqlite:///{db_path}"
+        engine = create_async_engine(database_url, future=True)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        api = MarketplaceAPI(database_url=database_url, session_factory=session_factory)
+        await api.initialize()
+        return api, engine
+
+    import asyncio
+
+    api, engine = asyncio.run(_build_api())
+
+    app = FastAPI()
+    app.state.pm_api = api
+    app.include_router(create_router())
+    _attach_auth_overrides(app, monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/v1/marketplace/agents/{uuid.uuid4()}/tools/bind",
+            json={"tool_ids": ["builtin/not_real"]},
+        )
+        assert response.status_code == 422
+        assert "Unknown tool ids" in response.json()["detail"]
 
     asyncio.run(engine.dispose())
 

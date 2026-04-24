@@ -32,25 +32,30 @@ bash ./tests/e2e/start_fullstack_e2e.sh
 ## 3. 脚本做了什么
 
 1. 清理历史残留：
+
 - 清理 `.tmp/e2e_fullstack` 与 `.tmp/dev_up` 的历史 pid
 - 清理端口：`8000`、`5173`、`5174`
 - 清理历史 `uvicorn backend.main:app` 和 `vite/npm run dev`
 
-2. 启动依赖服务：
+1. 启动依赖服务：
+
 - 检查并启动 Redis（6379）
 - 设置 SQLite 数据库 URL：
-`sqlite+aiosqlite:///.../agentforge_preview.db`
+  `sqlite+aiosqlite:///.../agentforge_preview.db`
 
-3. 启动后端：
+1. 启动后端：
+
 - `uvicorn backend.main:app --host 127.0.0.1 --port 8000`
 - 轮询 `GET /health`，健康通过后才进入下一步
 
-4. 启动前端：
+1. 启动前端：
+
 - 在 `frontend` 目录启动 `npm run dev -- --host 127.0.0.1 --port 5173 --strictPort`
 - 若不存在 `node_modules`，自动执行 `npm install`
 - 脚本会检测 `http://127.0.0.1:5173` 就绪；若失败会直接退出并提示日志路径
 
-5. 合并日志：
+1. 合并日志：
+
 - 后端日志统一前缀 `[backend]`
 - 前端日志统一前缀 `[frontend]`
 
@@ -63,10 +68,8 @@ bash ./tests/e2e/start_fullstack_e2e.sh
 
 - `redis-cli not found` / `redis-server not found`
   - 需要先安装 Redis 并确保命令在 PATH 中
-
 - `backend failed health check`
   - 查看同屏 `[backend]` 日志定位错误（常见为 Python 版本或依赖问题）
-
 - 前端拒绝连接（`ERR_CONNECTION_REFUSED`）
   - 先看：`.tmp/e2e_fullstack/frontend.log`
   - 该脚本已固定 `127.0.0.1:5173` 且 `strictPort`，不会再自动漂移端口
@@ -81,12 +84,10 @@ bash ./tests/e2e/start_fullstack_e2e.sh
 - Name：`coder`（用于工作区与 Agent 列表显示）
 - Avatar：`https://example.com/avatar.png`（可选）
 - Description：`你是一个严谨的代码助手。先给结论，再给最小可执行步骤。`（必填，执行时注入 prompt 链路）
-
 - Model Connection
 - Base URL：`https://api.openai.com/v1`（必填，必须为 OpenAI-compatible endpoint，禁止 localhost/内网地址）
 - API Key：填写有效 API Key（必填；已保存 key 不回显，编辑仅支持覆盖更新）
 - Model Name：`gpt-4o-mini`（必填）
-
 - Advanced Runtime
 - Temperature：`0.7`
 - Max Tokens：`1000`（留空表示 provider 默认）
@@ -95,43 +96,43 @@ bash ./tests/e2e/start_fullstack_e2e.sh
 ### 6.2 示例任务 A：纯对话推理能力（不触发工具）
 
 - 输入：
-`请用三句话解释什么是幂等性，并给一个 HTTP API 例子。不要调用任何工具。`
+  `请用三句话解释什么是幂等性，并给一个 HTTP API 例子。不要调用任何工具。`
 - 预期：
   - 成功返回最终答案；
   - 语义完整、无工具调用；
   - 执行状态结束为成功。
 
-### 6.3 示例任务 B：基础工具调用能力（echo_tool）
+### 6.3 示例任务 B：基础工具调用能力（echo\_tool）
 
 - 输入：
-`请调用 echo_tool，输入 x=41，并返回最终结果。`
+  `请调用 echo_tool，输入 x=41，并返回最终结果。`
 - 预期：
   - 至少产生 1 次 tool call；
-  - tool_id 为 `echo_tool`；
+  - tool\_id 为 `echo_tool`；
   - 观测结果包含 `y=42`；
   - 最终答案正确引用工具结果。
 
-### 6.4 示例任务 C：Sandbox 集成能力（python_add_tool）
+### 6.4 示例任务 C：Sandbox 集成能力（python\_add\_tool）
 
 - 输入：
-`请调用 python_add_tool，输入 x=99，并只返回最终数值。`
+  `请调用 python_add_tool，输入 x=99，并只返回最终数值。`
 - 预期：
   - 至少产生 1 次 tool call；
-  - tool_id 为 `python_add_tool`；
+  - tool\_id 为 `python_add_tool`；
   - 观测结果中数值为 `100`；
   - 执行链路无沙箱错误。
 
-### 6.5 示例任务 D：通用 Python 执行能力（python_executor）
+### 6.5 示例任务 D：通用 Python 执行能力（python\_executor）
 
 - 输入：
-`请调用 python_executor 执行以下代码并返回结果：result = {"sum": sum([1,2,3,4,5]), "max": max([1,2,3,4,5])}`
+  `请调用 python_executor 执行以下代码并返回结果：result = {"sum": sum([1,2,3,4,5]), "max": max([1,2,3,4,5])}`
 - 预期：
   - 至少产生 1 次 tool call；
-  - tool_id 为 `python_executor`；
+  - tool\_id 为 `python_executor`；
   - 观测结果包含 `sum=15`、`max=5`；
   - 最终答案与观测结果一致。
 
-### 6.6 示例任务 E：工具能力开关校验（supports_tools）
+### 6.6 示例任务 E：工具能力开关校验（supports\_tools）
 
 - 操作：
   - 将 `supports_tools` 改为 `false` 后保存；
@@ -148,3 +149,4 @@ bash ./tests/e2e/start_fullstack_e2e.sh
 - 失败时优先检查：
   - `.tmp/e2e_fullstack/backend.log`
   - `.tmp/e2e_fullstack/frontend.log`
+

@@ -16,4 +16,5 @@ export interface ApiRequestOptions {
   body?: unknown
   signal?: AbortSignal
   authMode?: 'auto' | 'required' | 'none'
+  responseMode?: 'envelope' | 'raw'
 }

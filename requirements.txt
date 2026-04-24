@@ -9,6 +9,7 @@ asyncpg
 aiosqlite
 greenlet
 openai
+langgraph
 redis
 hiredis
 jsonschema

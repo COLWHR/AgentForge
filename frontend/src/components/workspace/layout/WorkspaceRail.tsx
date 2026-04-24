@@ -1,4 +1,4 @@
-import { Clock, Eye, EyeOff, FolderKanban, MessageSquare, Plus, Settings2 } from 'lucide-react'
+import { AlertTriangle, Archive, Clock, Eye, EyeOff, FolderKanban, MessageSquare, MoreHorizontal, Pencil, Pin, Plus, Settings2, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
@@ -27,6 +27,7 @@ interface AgentConfigFormState {
   temperature: string
   max_tokens: string
   supports_tools: boolean
+  tools: string
 }
 
 const EMPTY_FORM: AgentConfigFormState = {
@@ -39,6 +40,39 @@ const EMPTY_FORM: AgentConfigFormState = {
   temperature: '0.7',
   max_tokens: '1000',
   supports_tools: true,
+  tools: 'python_executor, echo_tool, python_add_tool',
+}
+
+const PINNED_AGENT_IDS_STORAGE_KEY = 'AGENTFORGE_PINNED_AGENT_IDS'
+
+function readPinnedAgentIds(): string[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+  const raw = window.localStorage.getItem(PINNED_AGENT_IDS_STORAGE_KEY)
+  if (raw === null) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writePinnedAgentIds(agentIds: string[]): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.localStorage.setItem(PINNED_AGENT_IDS_STORAGE_KEY, JSON.stringify(agentIds))
+}
+
+function parseToolsInput(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index)
 }
 
 function validateEndpoint(value: string): string | null {
@@ -87,14 +121,29 @@ export function WorkspaceRail() {
   const isAgentListLoading = useAgentStore((state) => state.is_agent_list_loading)
   const createAgent = useAgentStore((state) => state.createAgent)
   const updateAgent = useAgentStore((state) => state.updateAgent)
+  const deleteAgent = useAgentStore((state) => state.deleteAgent)
   const selectAgent = useAgentStore((state) => state.selectAgent)
+  const resetCurrentAgent = useAgentStore((state) => state.resetCurrentAgent)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [configMode, setConfigMode] = useState<ConfigMode>('create')
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [form, setForm] = useState<AgentConfigFormState>({ ...EMPTY_FORM })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [menuOpenAgentId, setMenuOpenAgentId] = useState<string | null>(null)
+  const [damagedAgentId, setDamagedAgentId] = useState<string | null>(null)
+  const [isDeletingDamagedAgent, setIsDeletingDamagedAgent] = useState(false)
+  const [pinnedAgentIds, setPinnedAgentIds] = useState<string[]>([])
+  const editingAgent = useMemo(
+    () => (editingAgentId === null ? null : agentList.find((agent) => agent.id === editingAgentId) ?? null),
+    [agentList, editingAgentId],
+  )
+  const damagedAgent = useMemo(
+    () => (damagedAgentId === null ? null : agentList.find((agent) => agent.id === damagedAgentId) ?? null),
+    [agentList, damagedAgentId],
+  )
 
   const fieldErrors = useMemo(() => {
     const errors: Partial<Record<keyof AgentConfigFormState, string>> = {}
@@ -104,17 +153,58 @@ export function WorkspaceRail() {
     if (endpointErr) errors.llm_provider_url = endpointErr
     if (form.llm_model_name.trim().length === 0) errors.llm_model_name = 'Model Name 为必填项'
     if (configMode === 'create' && form.llm_api_key.trim().length === 0) errors.llm_api_key = 'API Key 为必填项'
-    if (configMode === 'edit' && currentAgentDetail?.has_api_key === false && form.llm_api_key.trim().length === 0) {
+    if (configMode === 'edit' && editingAgent?.has_api_key === false && form.llm_api_key.trim().length === 0) {
       errors.llm_api_key = '当前 Agent 尚未保存 API Key，请填写'
     }
     return errors
-  }, [configMode, currentAgentDetail?.has_api_key, form])
+  }, [configMode, editingAgent?.has_api_key, form])
 
   const canSubmit = Object.keys(fieldErrors).length === 0 && !isSubmitting
+  const orderedAgents = useMemo(() => {
+    const pinnedSet = new Set(pinnedAgentIds)
+    const withIndex = agentList.map((agent, index) => ({ agent, index }))
+    return withIndex
+      .slice()
+      .sort((left, right) => {
+        const leftPinned = pinnedSet.has(left.agent.id)
+        const rightPinned = pinnedSet.has(right.agent.id)
+        if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
+        const leftRank = left.agent.archived ? 3 : left.agent.is_available ? 1 : 2
+        const rightRank = right.agent.archived ? 3 : right.agent.is_available ? 1 : 2
+        if (leftRank !== rightRank) return leftRank - rightRank
+        return left.index - right.index
+      })
+      .map((item) => item.agent)
+  }, [agentList, pinnedAgentIds])
+  const recentAgents = useMemo(() => orderedAgents.filter((agent) => !agent.archived), [orderedAgents])
+  const archivedAgents = useMemo(() => orderedAgents.filter((agent) => agent.archived), [orderedAgents])
+
+  useEffect(() => {
+    setPinnedAgentIds(readPinnedAgentIds())
+  }, [])
+
+  useEffect(() => {
+    const existingIds = new Set(agentList.map((agent) => agent.id))
+    const cleaned = pinnedAgentIds.filter((agentId) => existingIds.has(agentId))
+    if (cleaned.length !== pinnedAgentIds.length) {
+      setPinnedAgentIds(cleaned)
+      writePinnedAgentIds(cleaned)
+    }
+  }, [agentList, pinnedAgentIds])
+
+  useEffect(() => {
+    if (menuOpenAgentId === null || typeof window === 'undefined') {
+      return
+    }
+    const closeMenu = () => setMenuOpenAgentId(null)
+    window.addEventListener('click', closeMenu)
+    return () => window.removeEventListener('click', closeMenu)
+  }, [menuOpenAgentId])
 
   useEffect(() => {
     const onOpenCreate = () => {
       setConfigMode('create')
+      setEditingAgentId(null)
       setForm({ ...EMPTY_FORM })
       setSubmitError(null)
       setShowApiKey(false)
@@ -123,6 +213,7 @@ export function WorkspaceRail() {
     const onOpenEdit = () => {
       const detail = useAgentStore.getState().current_agent_detail
       if (detail === null) return
+      setEditingAgentId(detail.id)
       setConfigMode('edit')
       setForm({
         name: detail.name,
@@ -134,6 +225,7 @@ export function WorkspaceRail() {
         temperature: String(detail.runtime_config.temperature),
         max_tokens: detail.runtime_config.max_tokens === null ? '' : String(detail.runtime_config.max_tokens),
         supports_tools: detail.capability_flags.supports_tools,
+        tools: detail.tools.join(', '),
       })
       setSubmitError(null)
       setShowApiKey(false)
@@ -150,6 +242,31 @@ export function WorkspaceRail() {
       }
     }
   }, [])
+
+  const openEditDrawerForAgent = (agentId: string) => {
+    const target = agentList.find((agent) => agent.id === agentId)
+    if (!target) {
+      notify.warning('目标 Agent 不存在或已刷新')
+      return
+    }
+    setEditingAgentId(target.id)
+    setConfigMode('edit')
+    setForm({
+      name: target.name,
+      avatar_url: target.avatar_url ?? '',
+      description: target.description,
+      llm_provider_url: target.llm_provider_url,
+      llm_api_key: '',
+      llm_model_name: target.llm_model_name,
+      temperature: String(target.runtime_config.temperature),
+      max_tokens: target.runtime_config.max_tokens === null ? '' : String(target.runtime_config.max_tokens),
+      supports_tools: target.capability_flags.supports_tools,
+      tools: target.tools.join(', '),
+    })
+    setSubmitError(null)
+    setShowApiKey(false)
+    setDrawerOpen(true)
+  }
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -169,11 +286,11 @@ export function WorkspaceRail() {
             max_tokens: form.max_tokens.trim().length > 0 ? Number(form.max_tokens) : null,
           },
           capability_flags: { supports_tools: form.supports_tools },
-          tools: [],
+          tools: parseToolsInput(form.tools),
           constraints: { max_steps: 6 },
         })
       } else {
-        const targetId = useAgentStore.getState().current_agent_id
+        const targetId = editingAgentId
         if (targetId === null) {
           setSubmitError('当前无可编辑 Agent')
           return
@@ -189,15 +306,99 @@ export function WorkspaceRail() {
             max_tokens: form.max_tokens.trim().length > 0 ? Number(form.max_tokens) : null,
           },
           capability_flags: { supports_tools: form.supports_tools },
+          tools: parseToolsInput(form.tools),
           ...(form.llm_api_key.trim().length > 0 ? { llm_api_key: form.llm_api_key.trim() } : {}),
         })
       }
       setDrawerOpen(false)
+      setEditingAgentId(null)
     } catch (error) {
       const code = parseArcErrorCode((error as { raw?: unknown })?.raw ?? null)
       setSubmitError(mapArcErrorCode(code))
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const togglePinned = (agentId: string) => {
+    const next = pinnedAgentIds.includes(agentId)
+      ? pinnedAgentIds.filter((id) => id !== agentId)
+      : [...pinnedAgentIds, agentId]
+    setPinnedAgentIds(next)
+    writePinnedAgentIds(next)
+    setMenuOpenAgentId(null)
+  }
+
+  const archiveAgent = async (agentId: string) => {
+    try {
+      await updateAgent(agentId, { archived: true })
+      if (currentAgentId === agentId) {
+        resetCurrentAgent()
+      }
+      setPinnedAgentIds((prev) => {
+        const next = prev.filter((id) => id !== agentId)
+        writePinnedAgentIds(next)
+        return next
+      })
+      setMenuOpenAgentId(null)
+    } catch (error) {
+      const apiError = mapArcErrorCode(parseArcErrorCode((error as { raw?: unknown })?.raw ?? null))
+      notify.error(apiError)
+    }
+  }
+
+  const unarchiveAgent = async (agentId: string) => {
+    try {
+      await updateAgent(agentId, { archived: false })
+      setMenuOpenAgentId(null)
+    } catch (error) {
+      const apiError = mapArcErrorCode(parseArcErrorCode((error as { raw?: unknown })?.raw ?? null))
+      notify.error(apiError)
+    }
+  }
+
+  const removeAgent = async (agentId: string) => {
+    const confirmed = typeof window !== 'undefined' ? window.confirm('确认删除该 Agent？此操作不可恢复。') : false
+    if (!confirmed) {
+      return
+    }
+    try {
+      await deleteAgent(agentId)
+      setPinnedAgentIds((prev) => {
+        const next = prev.filter((id) => id !== agentId)
+        writePinnedAgentIds(next)
+        return next
+      })
+      setMenuOpenAgentId(null)
+    } catch (error) {
+      const apiError = mapArcErrorCode(parseArcErrorCode((error as { raw?: unknown })?.raw ?? null))
+      notify.error(apiError)
+    }
+  }
+
+  const requestDeleteDamagedAgent = (agentId: string) => {
+    setMenuOpenAgentId(null)
+    setDamagedAgentId(agentId)
+  }
+
+  const removeDamagedAgent = async () => {
+    if (damagedAgentId === null) {
+      return
+    }
+    setIsDeletingDamagedAgent(true)
+    try {
+      await deleteAgent(damagedAgentId)
+      setPinnedAgentIds((prev) => {
+        const next = prev.filter((id) => id !== damagedAgentId)
+        writePinnedAgentIds(next)
+        return next
+      })
+      setDamagedAgentId(null)
+    } catch (error) {
+      const apiError = mapArcErrorCode(parseArcErrorCode((error as { raw?: unknown })?.raw ?? null))
+      notify.error(apiError)
+    } finally {
+      setIsDeletingDamagedAgent(false)
     }
   }
 
@@ -228,26 +429,133 @@ export function WorkspaceRail() {
         {!sidebarCollapsed ? (
           <div className="space-y-6">
             <div className="px-3">
-              <Button className="w-full" leftIcon={<Plus size={16} />} onClick={() => { setConfigMode('create'); setForm({ ...EMPTY_FORM }); setSubmitError(null); setDrawerOpen(true) }}>
-                New Agent Flow
+              <Button className="w-full" leftIcon={<Plus size={16} />} onClick={() => { setConfigMode('create'); setEditingAgentId(null); setForm({ ...EMPTY_FORM }); setSubmitError(null); setDrawerOpen(true) }}>
+                新建云端智能体
               </Button>
             </div>
 
             <SessionList title="Current Agent">
-              <SessionListItem id="current-agent" title={currentAgentDetail?.name ?? 'No Agent Selected'} subtitle={currentAgentDetail?.llm_model_name ?? 'EMPTY'} icon={<FolderKanban size={16} />} active={currentAgentId !== null} />
+              <SessionListItem
+                id="current-agent"
+                title={currentAgentDetail?.name ?? 'No Agent Selected'}
+                subtitle={
+                  currentAgentDetail === null
+                    ? 'Select or create an available agent'
+                    : currentAgentDetail.is_available
+                      ? currentAgentDetail.llm_model_name
+                      : `Unavailable: ${currentAgentDetail.availability_reason ?? 'invalid configuration'}`
+                }
+                icon={<FolderKanban size={16} />}
+                active={currentAgentId !== null}
+              />
             </SessionList>
 
             <SessionList title="Recent Agents">
               {isAgentListLoading && <SessionListItem id="loading-agents" title="Loading agents..." icon={<Clock size={16} />} />}
-              {!isAgentListLoading && agentList.map((agent) => (
-                <SessionListItem key={agent.id} id={agent.id} title={agent.name} subtitle={agent.llm_model_name} icon={<MessageSquare size={16} />} active={agent.id === currentAgentId} onClick={() => { void selectAgent(agent.id) }} />
+              {!isAgentListLoading && recentAgents.map((agent) => {
+                const isPinned = pinnedAgentIds.includes(agent.id)
+                return (
+                  <div
+                    key={agent.id}
+                    className={cn(
+                      'group relative flex items-start gap-2 rounded-token-md px-3 py-2 transition-colors',
+                      agent.id === currentAgentId ? 'bg-bg-soft ring-1 ring-border' : 'hover:bg-bg-soft',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                      onClick={() => {
+                        if (!agent.is_available) {
+                          requestDeleteDamagedAgent(agent.id)
+                          return
+                        }
+                        void selectAgent(agent.id)
+                      }}
+                    >
+                      <div className="mt-0.5 shrink-0 text-text-muted"><MessageSquare size={16} /></div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-text-main">{agent.name}</span>
+                          {isPinned && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">Pinned</span>}
+                          {!agent.is_available && (
+                            <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">
+                              <AlertTriangle size={10} />
+                              Unavailable
+                            </span>
+                          )}
+                        </div>
+                        <p className="truncate text-xs text-text-muted">
+                          {agent.is_available ? agent.llm_model_name : agent.availability_reason ?? 'Invalid legacy configuration'}
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="relative">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label={`manage-${agent.id}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (!agent.is_available) {
+                            requestDeleteDamagedAgent(agent.id)
+                            return
+                          }
+                          setMenuOpenAgentId((prev) => (prev === agent.id ? null : agent.id))
+                        }}
+                      >
+                        <MoreHorizontal size={14} />
+                      </Button>
+                      {menuOpenAgentId === agent.id && (
+                        <div className="absolute right-0 top-8 z-20 w-40 rounded-token-md border border-border bg-surface p-1 shadow-token-lg" onClick={(event) => event.stopPropagation()}>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-text-main hover:bg-bg-soft" onClick={() => { openEditDrawerForAgent(agent.id); setMenuOpenAgentId(null) }}>
+                            <Pencil size={12} />
+                            重命名
+                          </button>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-text-main hover:bg-bg-soft" onClick={() => togglePinned(agent.id)}>
+                            <Pin size={12} />
+                            {isPinned ? '取消置顶' : '置顶'}
+                          </button>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-text-main hover:bg-bg-soft" onClick={() => { void archiveAgent(agent.id) }}>
+                            <Archive size={12} />
+                            归档
+                          </button>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-red-600 hover:bg-red-50" onClick={() => { void removeAgent(agent.id) }}>
+                            <Trash2 size={12} />
+                            删除
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {!isAgentListLoading && recentAgents.length === 0 && (
+                <SessionListItem id="empty-agent-list" title="No agents available" subtitle="Create or recover an agent to continue" />
+              )}
+            </SessionList>
+
+            <SessionList title="Archived Agents">
+              {archivedAgents.length === 0 && <SessionListItem id="empty-archived-list" title="No archived agents" subtitle="Archived items will appear here" />}
+              {archivedAgents.map((agent) => (
+                <div key={agent.id} className="flex items-start gap-2 rounded-token-md px-3 py-2">
+                  <div className="mt-0.5 shrink-0 text-text-muted"><Archive size={16} /></div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-text-main">{agent.name}</p>
+                    <p className="truncate text-xs text-text-muted">{agent.availability_reason ?? 'Archived'}</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { void unarchiveAgent(agent.id) }}>
+                    恢复
+                  </Button>
+                </div>
               ))}
-              {!isAgentListLoading && agentList.length === 0 && <SessionListItem id="empty-agent-list" title="No agents found" subtitle="Create Agent to continue" />}
             </SessionList>
 
             <SessionList title="Recent Runs">
-              <SessionListItem id="run-1" title="Code Reviewer #452" subtitle="Failed" icon={<Clock size={16} />} />
-              <SessionListItem id="run-2" title="Data Analyzer #112" subtitle="Success" icon={<Clock size={16} />} />
+              <SessionListItem id="runs-empty" title="No recent runs" subtitle="Run history will appear here after execution" icon={<Clock size={16} />} />
             </SessionList>
 
             <SessionList title="Platform">
@@ -261,7 +569,7 @@ export function WorkspaceRail() {
           </div>
         ) : (
           <div className="flex flex-col items-center space-y-4">
-            <Button variant="ghost" size="icon" aria-label="new" onClick={() => { setConfigMode('create'); setForm({ ...EMPTY_FORM }); setSubmitError(null); setDrawerOpen(true) }}>
+            <Button variant="ghost" size="icon" aria-label="new" onClick={() => { setConfigMode('create'); setEditingAgentId(null); setForm({ ...EMPTY_FORM }); setSubmitError(null); setDrawerOpen(true) }}>
               <Plus size={20} />
             </Button>
             <div className="h-px w-8 bg-border" />
@@ -273,11 +581,52 @@ export function WorkspaceRail() {
       </div>
 
       <div className="shrink-0 border-t border-border p-3">
-        <button type="button" className="flex w-full items-center justify-center gap-3 rounded-token-md px-3 py-2 text-sm text-text-sub transition-colors hover:bg-bg-soft hover:text-text-main">
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-3 rounded-token-md px-3 py-2 text-sm text-text-sub transition-colors hover:bg-bg-soft hover:text-text-main"
+          onClick={() => notify.info('Settings 暂未开放，已留在当前工作区')}
+        >
           <Settings2 size={16} />
           {!sidebarCollapsed && <span>Settings</span>}
         </button>
       </div>
+
+      {damagedAgent !== null && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="damaged-agent-title"
+            aria-describedby="damaged-agent-description"
+            className="w-full max-w-sm rounded-token-lg border border-red-200 bg-surface p-5 shadow-token-xl"
+          >
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-token-md bg-red-50 text-red-600">
+                <AlertTriangle size={18} />
+              </div>
+              <div className="min-w-0">
+                <h3 id="damaged-agent-title" className="text-sm font-semibold text-text-main">
+                  智能体不可用
+                </h3>
+                <p id="damaged-agent-description" className="mt-1 text-sm leading-relaxed text-text-sub">
+                  该智能体已损坏或不可用，要删除它吗
+                </p>
+                <p className="mt-2 truncate text-xs text-text-muted">{damagedAgent.name}</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              className="w-full bg-red-600 hover:bg-red-700"
+              disabled={isDeletingDamagedAgent}
+              onClick={() => {
+                void removeDamagedAgent()
+              }}
+            >
+              {isDeletingDamagedAgent ? '正在删除...' : '是，删除'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={configMode === 'create' ? 'Create Agent' : 'Edit Agent'}>
         <div className="space-y-5">
@@ -304,7 +653,7 @@ export function WorkspaceRail() {
             <div className="space-y-1">
               <label htmlFor="api-key" className="text-xs font-medium text-text-sub">API Key</label>
               <div className="flex items-center gap-2">
-                <Input id="api-key" type={showApiKey ? 'text' : 'password'} placeholder={configMode === 'edit' && currentAgentDetail?.has_api_key ? '已保存，留空表示不变更' : '输入 API Key'} value={form.llm_api_key} onChange={(e) => setForm((prev) => ({ ...prev, llm_api_key: e.target.value }))} />
+                <Input id="api-key" type={showApiKey ? 'text' : 'password'} placeholder={configMode === 'edit' && editingAgent?.has_api_key ? '已保存，留空表示不变更' : '输入 API Key'} value={form.llm_api_key} onChange={(e) => setForm((prev) => ({ ...prev, llm_api_key: e.target.value }))} />
                 <Button type="button" variant="ghost" size="icon" aria-label="toggle api key visibility" onClick={() => setShowApiKey((prev) => !prev)}>
                   {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                 </Button>
@@ -331,6 +680,14 @@ export function WorkspaceRail() {
               </select>
               <p className="text-xs text-text-muted">与模型能力一致时才允许工具调用。</p>
             </div>
+            <Input
+              id="tools"
+              label="Tools"
+              placeholder="python_executor, echo_tool"
+              value={form.tools}
+              onChange={(e) => setForm((prev) => ({ ...prev, tools: e.target.value }))}
+            />
+            <p className="text-xs text-text-muted">逗号分隔工具名。默认会启用 `python_executor`、`echo_tool`、`python_add_tool`，保存时会同步到 marketplace binding。</p>
           </section>
 
           {submitError && <p className="rounded-token-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-600">{submitError}</p>}

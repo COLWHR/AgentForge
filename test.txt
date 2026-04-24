@@ -1,8 +1,0 @@
-./scripts/start_sqlite_fullstack.sh
-
-2026.4.22 8:55
-- 已新增启动脚本： start_sqlite_fullstack.sh
-- 已实现：启动前自动清理旧进程（端口 8000/5173 + 相关 uvicorn/vite 进程）
-- 已实现：自动切换 SQLite 并初始化数据库（创建 agentforge_preview.db ，并执行表初始化）
-- 已实现：前后端启动后日志合并输出（ db/backend/frontend 三路带前缀聚合）
-- 已完成：脚本执行权限设置与语法检查（ bash -n 通过）

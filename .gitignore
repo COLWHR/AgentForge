@@ -39,6 +39,7 @@ pip-wheel-metadata/
 # Node / Frontend
 # ========================
 node_modules/
+node_modules*/
 .cache/
 .next/
 .nuxt/
@@ -79,6 +80,7 @@ temp/
 *.tmp
 *.bak
 *.old
+/test.txt
 
 # ========================
 # AstraCut / AgentForge 特定
@@ -88,6 +90,7 @@ outputs/
 generated/
 artifacts/
 cache/
+/dump.rdb
 redis_dump.rdb
 
 # ========================

@@ -74,6 +74,14 @@ class Settings(BaseSettings):
             k: v for k, v in yaml_data.items() 
             if k not in env_vars or not env_vars[k]
         }
+
+        yaml_env = str(yaml_data.get("ENV") or env_vars.get("ENV") or "dev").lower()
+        yaml_db_url = str(yaml_data.get("DB_URL") or "")
+        is_placeholder_db = yaml_db_url.startswith("postgresql+asyncpg://user:password@localhost")
+        if yaml_env in {"dev", "development", "local"} and is_placeholder_db:
+            yaml_data["DB_URL"] = f"sqlite+aiosqlite:///{PROJECT_ROOT / 'agentforge_preview.db'}"
+        elif yaml_db_url.startswith("sqlite+aiosqlite:///./"):
+            yaml_data["DB_URL"] = f"sqlite+aiosqlite:///{PROJECT_ROOT / yaml_db_url.removeprefix('sqlite+aiosqlite:///./')}"
         
         # 4. Initialize Settings. Pydantic will still handle internal .env loading if configured,
         # but since we filtered yaml_data, constructor arguments won't override them.

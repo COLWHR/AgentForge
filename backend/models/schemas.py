@@ -42,8 +42,10 @@ class TokenUsage(BaseModel):
 class Message(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: Optional[str] = None
+    reasoning_content: Optional[str] = None
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
+    tool_calls: List["GatewayToolCall"] = Field(default_factory=list)
 
 class GatewayError(BaseModel):
     code: Union[ArcErrorCode, str]
@@ -51,10 +53,14 @@ class GatewayError(BaseModel):
 
 class GatewayResponse(BaseModel):
     content: str
+    reasoning_content: Optional[str] = None
     token_usage: TokenUsage
     finish_reason: Optional[str] = None
     error: Optional[GatewayError] = None
+    tool_calls: List["GatewayToolCall"] = Field(default_factory=list)
     tool_call: Optional["GatewayToolCall"] = None
+    provider_tool_name_to_internal_id: Dict[str, str] = Field(default_factory=dict)
+    internal_tool_id_to_provider_name: Dict[str, str] = Field(default_factory=dict)
 
 
 class GatewayToolCall(BaseModel):
@@ -124,7 +130,7 @@ class ExecutionResult(BaseModel):
 class ExecutionStepLogContract(BaseModel):
     execution_id: str
     step_index: int
-    phase: Literal["model_call", "tool_call", "observation", "final_answer"]
+    phase: Literal["knowledge_retrieval", "model_call", "tool_call", "observation", "final_answer"]
     tool_id: Optional[str] = None
     status: Literal["success", "error"]
     payload: Dict[str, Any]
@@ -156,6 +162,7 @@ class AgentRuntimeConfig(BaseModel):
 class AgentCreateRequest(BaseModel):
     name: str
     description: str
+    opening_statement: str = "你好，我是你的智能体。你可以直接告诉我想测试的问题或任务。"
     avatar_url: Optional[str] = None
     llm_provider_url: str
     llm_api_key: str
@@ -165,7 +172,7 @@ class AgentCreateRequest(BaseModel):
     tools: List[str] = Field(default_factory=list)
     constraints: Dict[str, Any] = Field(default_factory=lambda: {"max_steps": 6})
 
-    @field_validator("name", "description", "llm_provider_url", "llm_api_key", "llm_model_name")
+    @field_validator("name", "description", "opening_statement", "llm_provider_url", "llm_api_key", "llm_model_name")
     @classmethod
     def validate_required_non_empty(cls, v: str) -> str:
         value = v.strip()
@@ -177,6 +184,7 @@ class AgentCreateRequest(BaseModel):
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    opening_statement: Optional[str] = None
     avatar_url: Optional[str] = None
     llm_provider_url: Optional[str] = None
     llm_api_key: Optional[str] = None
@@ -185,8 +193,9 @@ class AgentUpdateRequest(BaseModel):
     capability_flags: Optional[AgentCapabilityFlags] = None
     tools: Optional[List[str]] = None
     constraints: Optional[Dict[str, Any]] = None
+    archived: Optional[bool] = None
 
-    @field_validator("name", "description", "llm_provider_url", "llm_api_key", "llm_model_name")
+    @field_validator("name", "description", "opening_statement", "llm_provider_url", "llm_api_key", "llm_model_name")
     @classmethod
     def validate_optional_non_empty(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -201,6 +210,7 @@ class AgentRead(BaseModel):
     id: UUID4
     name: str
     description: str
+    opening_statement: str = "你好，我是你的智能体。你可以直接告诉我想测试的问题或任务。"
     avatar_url: Optional[str] = None
     llm_provider_url: str
     llm_model_name: str
@@ -209,12 +219,73 @@ class AgentRead(BaseModel):
     tools: List[str]
     constraints: Dict[str, Any]
     has_api_key: bool
+    archived: bool = False
+    is_available: bool = True
+    availability_reason: Optional[str] = None
 
 class AgentCreateResponse(BaseModel):
     id: UUID4
 
+class KnowledgeDocumentCreateRequest(BaseModel):
+    title: str
+    content: str
+
+    @field_validator("title", "content")
+    @classmethod
+    def validate_required_text(cls, v: str) -> str:
+        value = v.strip()
+        if not value:
+            raise ValueError("field cannot be empty")
+        return value
+
+class KnowledgeDocumentRead(BaseModel):
+    id: UUID4
+    agent_id: UUID4
+    title: str
+    content: str
+    chunk_count: int = 0
+    created_at: str
+    updated_at: str
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        value = v.strip()
+        if not value:
+            raise ValueError("query cannot be empty")
+        return value
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        return min(max(v, 1), 10)
+
+class KnowledgeSearchResult(BaseModel):
+    document_id: UUID4
+    chunk_id: UUID4
+    title: str
+    content: str
+    score: float
+
+class ConversationHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v: str) -> str:
+        value = v.strip()
+        if not value:
+            raise ValueError("content cannot be empty")
+        return value
+
 class ExecuteAgentRequest(BaseModel):
     input: str
+    conversation_history: List[ConversationHistoryMessage] = Field(default_factory=list)
 
 class ExecuteAgentResponse(BaseModel):
     execution_id: UUID4

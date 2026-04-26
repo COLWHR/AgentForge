@@ -1,6 +1,6 @@
 id: builtin
 name: Builtin Tools
-description: Built-in tools provided by AgentForge (echo, python_exec)
+description: Built-in tools provided by AgentForge
 icon_url: https://cdn-icons-png.flaticon.com/128/1004/1004771.png
 tool_type: builtin
 categories: ["utilities"]
@@ -31,3 +31,57 @@ tools:
           type: string
           description: Python code to execute
       required: ["code"]
+
+  - name: calculate
+    display_name: 运算
+    description: Safely calculate a basic arithmetic expression
+    input_schema:
+      type: object
+      properties:
+        expression:
+          type: string
+          description: Arithmetic expression to calculate
+      required: ["expression"]
+
+  - name: caculate
+    display_name: 运算
+    description: Compatibility alias for calculate
+    input_schema:
+      type: object
+      properties:
+        expression:
+          type: string
+          description: Arithmetic expression to calculate
+      required: ["expression"]
+
+  - name: websearch
+    display_name: 网页搜索
+    description: Search the web for current public information
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query
+        limit:
+          type: integer
+          description: Maximum number of results to return
+          minimum: 1
+          maximum: 5
+      required: ["query"]
+
+  - name: web_search
+    display_name: 网页搜索
+    description: Compatibility alias for websearch
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query
+        limit:
+          type: integer
+          description: Maximum number of results to return
+          minimum: 1
+          maximum: 5
+      required: ["query"]

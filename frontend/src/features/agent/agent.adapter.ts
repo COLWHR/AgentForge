@@ -14,6 +14,7 @@ export interface AgentDetail {
   id: string
   name: string
   description: string
+  opening_statement: string
   avatar_url: string | null
   llm_provider_url: string
   llm_model_name: string
@@ -22,11 +23,15 @@ export interface AgentDetail {
   tools: string[]
   constraints: Record<string, unknown>
   has_api_key: boolean
+  archived: boolean
+  is_available: boolean
+  availability_reason: string | null
 }
 
 export interface CreateAgentPayload {
   name: string
   description: string
+  opening_statement: string
   avatar_url: string | null
   llm_provider_url: string
   llm_api_key: string
@@ -40,6 +45,7 @@ export interface CreateAgentPayload {
 export interface UpdateAgentPayload {
   name?: string
   description?: string
+  opening_statement?: string
   avatar_url?: string | null
   llm_provider_url?: string
   llm_api_key?: string
@@ -48,6 +54,7 @@ export interface UpdateAgentPayload {
   capability_flags?: AgentCapabilityFlags
   tools?: string[]
   constraints?: Record<string, unknown>
+  archived?: boolean
 }
 
 interface CreateAgentResponse {
@@ -62,7 +69,7 @@ function asString(value: unknown, field: string): string {
   if (typeof value !== 'string') {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: `Invalid agent field: ${field}`,
+      message: `智能体字段无效：${field}`,
       raw: value,
     })
   }
@@ -73,7 +80,7 @@ function asNumber(value: unknown, field: string): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: `Invalid agent field: ${field}`,
+      message: `智能体字段无效：${field}`,
       raw: value,
     })
   }
@@ -84,7 +91,7 @@ function asStringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: `Invalid agent field: ${field}`,
+      message: `智能体字段无效：${field}`,
       raw: value,
     })
   }
@@ -112,7 +119,7 @@ function mapAgentDetail(raw: unknown): AgentDetail {
   if (!isRecord(raw)) {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: 'Invalid agent detail payload',
+      message: '智能体详情响应无效',
       raw,
     })
   }
@@ -121,8 +128,12 @@ function mapAgentDetail(raw: unknown): AgentDetail {
 
   return {
     id: asString(raw.id, 'id'),
-    name: asString((raw.name ?? legacyConfig.name ?? 'Untitled Agent') as unknown, 'name'),
+    name: asString((raw.name ?? legacyConfig.name ?? '未命名智能体') as unknown, 'name'),
     description: asString((raw.description ?? legacyConfig.description ?? '') as unknown, 'description'),
+    opening_statement: asString(
+      (raw.opening_statement ?? legacyConfig.opening_statement ?? '你好，我是你的智能体。你可以直接告诉我想测试的问题或任务。') as unknown,
+      'opening_statement',
+    ),
     avatar_url:
       raw.avatar_url === null || raw.avatar_url === undefined
         ? legacyConfig.avatar_url === null || legacyConfig.avatar_url === undefined
@@ -136,6 +147,12 @@ function mapAgentDetail(raw: unknown): AgentDetail {
     tools: asStringArray((raw.tools ?? legacyConfig.tools ?? []) as unknown, 'tools'),
     constraints: isRecord(raw.constraints) ? raw.constraints : isRecord(legacyConfig.constraints) ? legacyConfig.constraints : {},
     has_api_key: Boolean(raw.has_api_key ?? legacyConfig.has_api_key ?? legacyConfig.llm_api_key_encrypted),
+    archived: Boolean(raw.archived ?? legacyConfig.archived ?? false),
+    is_available: typeof raw.is_available === 'boolean' ? raw.is_available : true,
+    availability_reason:
+      raw.availability_reason === null || raw.availability_reason === undefined
+        ? null
+        : asString(raw.availability_reason, 'availability_reason'),
   }
 }
 
@@ -143,7 +160,7 @@ function mapAgentList(raw: unknown): AgentDetail[] {
   if (!Array.isArray(raw)) {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: 'Invalid agent list payload',
+      message: '智能体列表响应无效',
       raw,
     })
   }
@@ -155,7 +172,7 @@ function mapCreateAgentResponse(raw: unknown): CreateAgentResponse {
   if (!isRecord(raw)) {
     throw new ApiError({
       code: 'INVALID_RESPONSE_FORMAT',
-      message: 'Invalid create agent payload',
+      message: '创建智能体响应无效',
       raw,
     })
   }
@@ -198,5 +215,13 @@ export const agentAdapter = {
       authMode: 'required',
     })
     return await this.fetchAgentDetail(agent_id)
+  },
+
+  async deleteAgent(agent_id: string): Promise<AgentDetail> {
+    const result = await apiClient.request<unknown>(`/agents/${agent_id}`, {
+      method: 'DELETE',
+      authMode: 'required',
+    })
+    return mapAgentDetail(result.data)
   },
 }

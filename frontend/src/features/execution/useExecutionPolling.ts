@@ -30,12 +30,14 @@ export function useExecutionPolling(execution_id: string | null) {
     pollingAgentIdRef.current = initialAgentId
     consecutiveFailureRef.current = 0
 
-    const stopPolling = () => {
+    const stopPolling = (finalize = false) => {
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
       }
-      useExecutionStore.getState().finishExecution()
+      if (finalize) {
+        useExecutionStore.getState().finishExecution()
+      }
     }
 
     const poll = async () => {
@@ -71,7 +73,7 @@ export function useExecutionPolling(execution_id: string | null) {
           snapshot.status === 'FAILED' ||
           snapshot.status === 'TERMINATED'
         ) {
-          stopPolling()
+          stopPolling(true)
         }
       } catch (error) {
         consecutiveFailureRef.current += 1
@@ -85,13 +87,18 @@ export function useExecutionPolling(execution_id: string | null) {
             execution_id,
             status: 'FAILED',
             final_answer: null,
+            error_code: null,
+            error_source: null,
+            error_details: null,
+            error_message: normalizeApiError(error).message,
             react_steps: [],
+            step_logs: [],
             termination_reason: 'POLLING_NETWORK_FAILURE',
             total_token_usage: null,
           })
         }
 
-        stopPolling()
+        stopPolling(true)
         notify.error(normalizeApiError(error).message)
       }
     }
@@ -107,7 +114,6 @@ export function useExecutionPolling(execution_id: string | null) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
       }
-      useExecutionStore.getState().finishExecution()
     }
   }, [execution_id, currentAgentId])
 }

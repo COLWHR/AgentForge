@@ -9,6 +9,7 @@ asyncpg
 aiosqlite
 greenlet
 openai
+langgraph
 redis
 hiredis
 jsonschema
@@ -17,3 +18,6 @@ pytest
 pytest-asyncio
 httpx
 pytest-env
+python-multipart
+pypdf
+python-docx

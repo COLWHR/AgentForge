@@ -28,6 +28,36 @@ class AgentOwnership(Base):
     def __repr__(self) -> str:
         return f"<AgentOwnership(agent_id={self.agent_id}, team_id={self.team_id})>"
 
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(nullable=False)
+    content: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<KnowledgeDocument(id={self.id}, agent_id={self.agent_id})>"
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(nullable=False)
+    content: Mapped[str] = mapped_column(nullable=False)
+    chunk_index: Mapped[int] = mapped_column(nullable=False)
+    token_text: Mapped[str] = mapped_column(nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<KnowledgeChunk(document_id={self.document_id}, chunk_index={self.chunk_index})>"
+
 class ExecutionLog(Base):
     __tablename__ = "execution_logs"
 

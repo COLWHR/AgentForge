@@ -18,7 +18,7 @@ export function TopHeader({ rightSlot }: TopHeaderProps) {
       <div className="flex h-16 items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="truncate text-xs text-text-muted">{breadcrumbs.join(' / ')}</div>
-          <h1 className="truncate text-base font-semibold text-text-main">AgentForge Console</h1>
+          <h1 className="truncate text-base font-semibold text-text-main">AgentForge 控制台</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -27,7 +27,7 @@ export function TopHeader({ rightSlot }: TopHeaderProps) {
             leftIcon={<Search size={14} />}
             onClick={() => setCommandPaletteOpen(true)}
           >
-            Search
+            搜索
           </Button>
           {rightSlot}
         </div>

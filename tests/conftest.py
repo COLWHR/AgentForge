@@ -14,6 +14,7 @@ import backend.services.execution_log_service as log_service
 import backend.services.model_gateway as model_gateway
 import backend.services.competition_manager_service as comp_service
 import backend.services.authorization_service as authz_service
+import backend.services.langgraph_execution_strategy as langgraph_strategy
 from backend.models.orm import Team, TeamQuota, TeamMember
 
 # Prefer a deterministic local sqlite test DB to avoid external role/config dependencies.
@@ -34,6 +35,7 @@ log_service.AsyncSessionLocal = TestingSessionLocal
 model_gateway.AsyncSessionLocal = TestingSessionLocal
 comp_service.AsyncSessionLocal = TestingSessionLocal
 authz_service.AsyncSessionLocal = TestingSessionLocal
+langgraph_strategy.AsyncSessionLocal = TestingSessionLocal
 
 # Test constants
 TEST_TEAM_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")

@@ -61,7 +61,9 @@ cleanup_pid_file() {
     if [ -n "$pid" ]; then
       kill_pid "$pid" "$label"
     fi
-    rm -f "$file"
+    # In some runners, path allowlist parsing can mis-handle ':' in absolute paths.
+    # Cleanup should stay best-effort and must not abort startup.
+    rm -f "$file" 2>/dev/null || log "warn: failed to remove pid file $file"
   fi
 }
 
@@ -125,15 +127,19 @@ kill_by_pattern "$PROJECT_ROOT/frontend.*vite" "legacy-vite"
 kill_by_pattern "$PROJECT_ROOT/frontend.*npm run dev" "legacy-npm-dev"
 log "startup cleanup done"
 
-PYTHON_BIN="$(pick_python)"
-if [ -z "$PYTHON_BIN" ]; then
-  echo "[e2e_fullstack] python not found"
-  exit 1
-fi
-
-if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
-  # shellcheck disable=SC1091
-  source "$PROJECT_ROOT/.venv/bin/activate"
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+  # Always prefer project venv python to avoid interpreter mismatch.
+  PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+  if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.venv/bin/activate"
+  fi
+else
+  PYTHON_BIN="$(pick_python)"
+  if [ -z "$PYTHON_BIN" ]; then
+    echo "[e2e_fullstack] python not found"
+    exit 1
+  fi
 fi
 
 "$PYTHON_BIN" - <<'PY'
@@ -141,6 +147,27 @@ import sys
 assert sys.version_info >= (3, 10), "Python version must be >= 3.10"
 print("Python version OK")
 PY
+
+if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import importlib
+import sys
+
+required_modules = ("langgraph", "multipart", "pypdf", "docx")
+missing = []
+for module_name in required_modules:
+    try:
+        importlib.import_module(module_name)
+    except Exception:
+        missing.append(module_name)
+
+if missing:
+    print("missing modules:", ", ".join(missing))
+    sys.exit(1)
+PY
+then
+  log "backend python deps missing in selected python, installing backend requirements"
+  "$PYTHON_BIN" -m pip install -r "$PROJECT_ROOT/backend/requirements.txt"
+fi
 
 if ! command -v redis-cli >/dev/null 2>&1; then
   echo "[e2e_fullstack] redis-cli not found"
@@ -168,7 +195,7 @@ if pgrep -f "redis-server.*6379" >/dev/null 2>&1; then
   pgrep -f "redis-server.*6379" | head -n 1 > "$REDIS_PID_FILE"
 fi
 
-rm -f "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE"
+rm -f "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE" 2>/dev/null || true
 touch "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE"
 
 tail -n 0 -F "$BACKEND_LOG_FILE" | sed -u 's/^/[backend] /' &
@@ -212,10 +239,10 @@ fi
 log "starting frontend after backend is ready"
 (
   cd "$PROJECT_ROOT/frontend" || exit 1
-  if [ ! -d "node_modules" ]; then
+  if [ ! -d "node_modules" ] || [ ! -x "node_modules/.bin/vite" ]; then
     npm install || exit 1
   fi
-  npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+  ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort
 ) > "$FRONTEND_LOG_FILE" 2>&1 &
 FRONTEND_PID="$!"
 echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"

@@ -20,9 +20,9 @@ export function SidebarNav() {
       <div className="flex h-16 items-center justify-between border-b border-border px-4">
         <div className="overflow-hidden">
           <p className="truncate text-sm font-semibold text-text-main">AgentForge</p>
-          <p className="truncate text-xs text-text-muted">Platform Console</p>
+          <p className="truncate text-xs text-text-muted">平台控制台</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="toggle sidebar">
+        <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="切换侧边栏" title="切换侧边栏">
           {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </Button>
       </div>
@@ -57,7 +57,7 @@ export function SidebarNav() {
           className="flex w-full items-center gap-3 rounded-token-md px-3 py-2 text-sm text-text-sub transition-colors hover:bg-bg-soft hover:text-text-main"
         >
           <Settings2 size={16} />
-          {!sidebarCollapsed && <span>Account & Preferences</span>}
+          {!sidebarCollapsed && <span>账户与偏好</span>}
         </button>
       </div>
     </aside>

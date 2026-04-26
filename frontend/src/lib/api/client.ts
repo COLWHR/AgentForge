@@ -55,8 +55,9 @@ class ApiClient {
     const method = options.method ?? 'GET'
     const authMode = options.authMode ?? 'auto'
     const url = `${this.baseUrl}${path}`
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers ?? {}),
     }
 
@@ -71,16 +72,23 @@ class ApiClient {
       if (!isDevAuthBypassEnabled()) {
       throw new ApiError({
         code: 'AUTH_TOKEN_MISSING',
-        message: 'Authorization token is required',
+        message: '需要登录凭证',
         raw: { path, method },
       })
       }
     }
 
+    const requestBody: BodyInit | undefined =
+      options.body === undefined || options.body === null
+        ? undefined
+        : isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body)
+
     const response = await fetch(url, {
       method,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: requestBody,
       signal: options.signal,
     })
 
@@ -91,7 +99,7 @@ class ApiClient {
     } catch (error) {
       throw new ApiError({
         code: 'INVALID_RESPONSE_FORMAT',
-        message: 'Response body is not valid JSON',
+        message: '响应内容不是有效 JSON',
         raw: error,
       })
     }
@@ -104,12 +112,16 @@ class ApiClient {
       })
     }
 
+    if (options.responseMode === 'raw') {
+      return { data: rawResponse as T }
+    }
+
     const envelope = rawResponse as RawApiEnvelope<T>
 
     if (typeof envelope?.code !== 'number') {
       throw new ApiError({
         code: 'INVALID_RESPONSE_FORMAT',
-        message: 'Response envelope is invalid',
+        message: '响应结构无效',
         raw: rawResponse,
       })
     }
@@ -117,7 +129,7 @@ class ApiClient {
     if (envelope.code !== 0) {
       throw new ApiError({
         code: envelope.code,
-        message: envelope.message ?? 'Business error',
+        message: envelope.message ?? '业务错误',
         raw: rawResponse,
       })
     }

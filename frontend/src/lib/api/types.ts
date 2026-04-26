@@ -13,7 +13,8 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface ApiRequestOptions {
   method?: HttpMethod
   headers?: Record<string, string>
-  body?: unknown
+  body?: unknown | FormData
   signal?: AbortSignal
   authMode?: 'auto' | 'required' | 'none'
+  responseMode?: 'envelope' | 'raw'
 }

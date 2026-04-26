@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from plugin_marketplace.db.database import session_scope
@@ -64,6 +64,27 @@ class ToolRegistry:
             if not row:
                 raise ToolNotFoundError(f"Tool {compound_name} not found.")
             return self._serialize_tool(row[0], row[1])
+
+    async def get_tools(self, compound_names: Sequence[str]) -> List[Dict[str, Any]]:
+        normalized = [name.strip() for name in compound_names if isinstance(name, str) and name.strip()]
+        if not normalized:
+            return []
+
+        conditions = []
+        for compound_name in normalized:
+            extension_id, tool_name = compound_name.split("/", 1)
+            conditions.append((Tool.extension_id == extension_id) & (Tool.name == tool_name))
+
+        async with self.session_factory() as session:
+            stmt = (
+                select(Tool, Extension)
+                .join(Extension, Tool.extension_id == Extension.id)
+                .where(or_(*conditions))
+            )
+            rows = (await session.execute(stmt)).all()
+
+        tools_by_id = {f"{tool.extension_id}/{tool.name}": self._serialize_tool(tool, extension) for tool, extension in rows}
+        return [tools_by_id[name] for name in normalized if name in tools_by_id]
 
     def _serialize_tool(self, tool: Tool, extension: Extension) -> Dict[str, Any]:
         descriptor = ToolDescriptor(

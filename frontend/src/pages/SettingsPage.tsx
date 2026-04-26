@@ -10,8 +10,8 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 
 const quotaRows = [
-  { metric: 'Daily Runs', value: '0 / 1000', scope: 'Team' },
-  { metric: 'Token Budget', value: '0 / 2M', scope: 'Team' },
+  { metric: '每日运行次数', value: '0 / 1000', scope: '团队' },
+  { metric: '令牌预算', value: '0 / 2M', scope: '团队' },
 ]
 
 export function SettingsPage() {
@@ -20,31 +20,31 @@ export function SettingsPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="System Settings"
-        description="Configuration and quota surfaces are represented as UI shells in F0."
-        statusSlot={<Badge variant="neutral">No Persistence</Badge>}
+        title="系统设置"
+        description="配置与额度页面当前为基础界面。"
+        statusSlot={<Badge variant="neutral">暂未持久化</Badge>}
         actions={
           <Button variant="secondary" onClick={() => setDrawerOpen(true)}>
-            Open Drawer Shell
+            打开设置抽屉
           </Button>
         }
       />
 
-      <Card title="Quota Table Shell" description="Base table style for future system data rendering.">
+      <Card title="额度表格" description="系统额度数据展示区域。">
         <Table
           data={quotaRows}
           columns={[
-            { key: 'metric', header: 'Metric' },
-            { key: 'value', header: 'Usage' },
-            { key: 'scope', header: 'Scope' },
+            { key: 'metric', header: '指标' },
+            { key: 'value', header: '用量' },
+            { key: 'scope', header: '范围' },
           ]}
         />
       </Card>
 
       <PermissionDenied />
 
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Settings Drawer">
-        <p className="text-sm leading-relaxed text-text-muted">Drawer shell is ready. Detailed settings forms are deferred.</p>
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title="设置抽屉">
+        <p className="text-sm leading-relaxed text-text-muted">设置抽屉已就绪，详细表单稍后补充。</p>
       </Drawer>
     </PageContainer>
   )

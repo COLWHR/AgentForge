@@ -25,7 +25,7 @@ export function normalizeApiError(error: unknown): ApiError {
 
   return new ApiError({
     code: 'UNKNOWN_ERROR',
-    message: 'Unknown error',
+    message: '未知错误',
     raw: error,
   })
 }

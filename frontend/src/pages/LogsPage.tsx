@@ -6,25 +6,25 @@ import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
 
 const sampleLines = [
-  { level: 'info' as const, message: '[INFO] request_id=req_f0_001 start run shell render' },
-  { level: 'success' as const, message: '[SUCCESS] sidebar/header/content layout mounted' },
-  { level: 'error' as const, message: '[ERROR] execution binding unavailable in phase F0 (expected)' },
+  { level: 'info' as const, message: '[信息] 请求 req_f0_001 开始渲染运行界面' },
+  { level: 'success' as const, message: '[成功] 侧栏、头部与内容布局已挂载' },
+  { level: 'error' as const, message: '[错误] 当前阶段暂未接入执行绑定' },
 ]
 
 export function LogsPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Logs & Records"
-        description="Log readability-first baseline with monospace, line-height, contrast, and scroll behavior."
-        statusSlot={<Badge variant="success">Console Ready</Badge>}
+        title="日志与记录"
+        description="日志界面优先保证可读性、对比度与滚动体验。"
+        statusSlot={<Badge variant="success">控制台已就绪</Badge>}
       />
 
-      <Alert variant="warning" title="Readability Priority">
-        This console focuses on typography and contrast. Real data will connect in later phases.
+      <Alert variant="warning" title="可读性优先">
+        当前控制台聚焦排版与对比度，真实数据将在后续阶段接入。
       </Alert>
 
-      <Card title="Log Console Container">
+      <Card title="日志控制台">
         <LogConsole lines={sampleLines} />
       </Card>
     </PageContainer>

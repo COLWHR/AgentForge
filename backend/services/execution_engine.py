@@ -24,6 +24,8 @@ class ExecutionEngine:
         auth_context: AuthContext,
         request_id: Optional[str] = None,
         conversation_history: Optional[List[ConversationHistoryMessage]] = None,
+        execution_id: Optional[uuid.UUID] = None,
+        start_log: bool = True,
     ) -> ExecutionResult:
         if not request_id:
             request_id = auth_context.request_id or f"exec-{uuid.uuid4().hex[:8]}"
@@ -39,6 +41,8 @@ class ExecutionEngine:
             auth_context=auth_context,
             request_id=request_id,
             conversation_history=conversation_history,
+            execution_id=execution_id,
+            start_log=start_log,
         )
 
 

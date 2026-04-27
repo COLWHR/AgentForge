@@ -1,11 +1,12 @@
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.database import get_db
 from backend.core.logging import get_request_id, logger
 from backend.services.agent_service import AgentService
 from backend.services.agent_runtime_defaults import default_agent_tool_ids
 from backend.services.execution_engine import execution_engine
+from backend.services.execution_log_service import execution_log_service
 from backend.services.competition_manager_service import competition_manager_service
 from backend.services.marketplace_tool_adapter import marketplace_tool_adapter
 from backend.services.authorization_service import authorization_service
@@ -19,8 +20,10 @@ from backend.models.schemas import (
     AgentCreateResponse,
     ExecuteAgentRequest,
     ExecuteAgentResponse,
+    ExecutionErrorModel,
+    TokenUsage,
 )
-from backend.models.constants import ResponseCode
+from backend.models.constants import ExecutionState, ExecutionStatus, ResponseCode, TerminationReason
 
 from backend.api.dependencies import get_current_user
 from backend.core.exceptions import NotFoundException, QuotaException
@@ -147,6 +150,7 @@ async def delete_agent(
 async def execute_agent(
     id: uuid.UUID,
     request: ExecuteAgentRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     auth: AuthContext = Depends(get_current_user)
 ):
@@ -172,22 +176,55 @@ async def execute_agent(
         raise Exception("Internal service error during quota validation.")
         
     request_id = get_request_id()
+    execution_id = uuid.uuid4()
     logger.bind(resource_type="execution_record", resource_id=str(id)).info(
         f"execution trace log: start execute agent={id}"
     )
-    result = await execution_engine.run(
-        agent_id=str(agent.id),
-        user_input=request.input,
-        auth_context=auth,
+    await execution_log_service.start_execution(
+        execution_id=execution_id,
+        agent_id=agent.id,
+        team_id=uuid.UUID(auth.team_id),
         request_id=request_id,
-        conversation_history=request.conversation_history,
+        initial_state=ExecutionState.INIT.value,
+        input_data=request.input,
     )
+
+    async def run_execution_in_background() -> None:
+        try:
+            await execution_engine.run(
+                agent_id=str(agent.id),
+                user_input=request.input,
+                auth_context=auth,
+                request_id=request_id,
+                conversation_history=request.conversation_history,
+                execution_id=execution_id,
+                start_log=False,
+            )
+        except Exception as exc:
+            logger.exception(f"Background execution failed before completion: {exc}")
+            error = ExecutionErrorModel(
+                error_code=ResponseCode.ENGINE_ERROR.name,
+                error_source="execution_engine",
+                error_message=str(exc),
+            )
+            await execution_log_service.complete_execution(
+                execution_id=execution_id,
+                status=ExecutionStatus.FAILED.value,
+                final_state=ExecutionState.TERMINATED.value,
+                termination_reason=TerminationReason.FAILED.value,
+                steps_used=0,
+                final_answer=f"执行失败：{exc}",
+                total_token_usage=TokenUsage(),
+                error=error,
+            )
+
+    background_tasks.add_task(run_execution_in_background)
     return BaseResponse.success(
         data=ExecuteAgentResponse(
-            execution_id=result.execution_id,
-            final_state=result.final_state,
-            termination_reason=result.termination_reason,
-            steps_used=result.steps_used,
+            execution_id=execution_id,
+            final_state="INIT",
+            termination_reason=None,
+            steps_used=0,
             request_id=request_id
         ),
         message="OK"

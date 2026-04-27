@@ -1,6 +1,7 @@
+import inspect
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 import openai
 from openai import AsyncOpenAI
 from backend.core.exceptions import ModelGatewayException
@@ -154,6 +155,7 @@ class ModelGateway:
         api_key: str,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Dict[str, Any] | str] = None,
+        on_content_delta: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> GatewayResponse:
         validate_provider_url(provider_url)
         if not api_key.strip():
@@ -210,7 +212,91 @@ class ModelGateway:
             provider_tool_names=provider_tool_names,
         ).info("Sending tools to provider")
 
+        async def emit_content_delta(delta: str) -> None:
+            if not delta or on_content_delta is None:
+                return
+            result = on_content_delta(delta)
+            if inspect.isawaitable(result):
+                await result
+
         try:
+            if on_content_delta is not None:
+                response_stream = await client.chat.completions.create(**request_kwargs, stream=True)
+                content_parts: List[str] = []
+                reasoning_parts: List[str] = []
+                streamed_tool_calls: Dict[int, Dict[str, str]] = {}
+                finish_reason: Optional[str] = None
+
+                async for chunk in response_stream:
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    finish_reason = choice.finish_reason or finish_reason
+                    delta = choice.delta
+                    content_delta = getattr(delta, "content", None) or ""
+                    if content_delta:
+                        content_parts.append(content_delta)
+                        await emit_content_delta(content_delta)
+
+                    reasoning_delta = getattr(delta, "reasoning_content", None) or ""
+                    if reasoning_delta:
+                        reasoning_parts.append(reasoning_delta)
+
+                    for raw_tool_delta in getattr(delta, "tool_calls", None) or []:
+                        index = int(getattr(raw_tool_delta, "index", 0) or 0)
+                        current = streamed_tool_calls.setdefault(
+                            index,
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        raw_id = getattr(raw_tool_delta, "id", None)
+                        if raw_id:
+                            current["id"] += raw_id
+                        raw_function = getattr(raw_tool_delta, "function", None)
+                        if raw_function is not None:
+                            raw_name = getattr(raw_function, "name", None)
+                            raw_arguments = getattr(raw_function, "arguments", None)
+                            if raw_name:
+                                current["name"] += raw_name
+                            if raw_arguments:
+                                current["arguments"] += raw_arguments
+
+                content = "".join(content_parts)
+                reasoning_content = "".join(reasoning_parts) or None
+                tool_calls: List[GatewayToolCall] = []
+                for index in sorted(streamed_tool_calls):
+                    raw_tool_call = streamed_tool_calls[index]
+                    arguments = raw_tool_call["arguments"] or "{}"
+                    try:
+                        json.loads(arguments)
+                    except Exception:
+                        self._raise_gateway_error(
+                            ArcErrorCode.INVALID_TOOL_CALL,
+                            "Model returned invalid tool call arguments",
+                        )
+                    tool_calls.append(
+                        GatewayToolCall(
+                            id=raw_tool_call["id"] or f"call_{index}",
+                            function_name=raw_tool_call["name"],
+                            function_arguments=arguments,
+                        )
+                    )
+
+                logger.bind(
+                    event="gateway_after_provider_call",
+                    raw_returned_function_names=[tool_call.function_name for tool_call in tool_calls],
+                ).info("Provider returned streamed model response")
+
+                return GatewayResponse(
+                    content=content,
+                    reasoning_content=reasoning_content,
+                    token_usage=self._estimate_usage(messages, content),
+                    finish_reason=finish_reason,
+                    tool_calls=tool_calls,
+                    tool_call=tool_calls[0] if tool_calls else None,
+                    provider_tool_name_to_internal_id=provider_to_internal_tool_name,
+                    internal_tool_id_to_provider_name=internal_to_provider_tool_name,
+                )
+
             response = await client.chat.completions.create(**request_kwargs)
             choice = response.choices[0]
             message = choice.message
@@ -330,6 +416,7 @@ class ModelGateway:
         provider_url: str,
         api_key: str,
         tool_choice: Optional[Dict[str, Any] | str] = None,
+        on_content_delta: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> GatewayResponse:
         return await self.chat(
             messages=messages,
@@ -338,6 +425,7 @@ class ModelGateway:
             api_key=api_key,
             tools=tools,
             tool_choice=tool_choice,
+            on_content_delta=on_content_delta,
         )
 
 # Singleton instance

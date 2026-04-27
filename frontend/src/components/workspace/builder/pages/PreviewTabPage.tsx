@@ -1,9 +1,12 @@
 import { Brain, Database, ExternalLink, MessageSquareText, Wrench } from 'lucide-react'
 import { useEffect, useMemo, type ReactNode } from 'react'
 
+import { useAgentStore } from '../../../../features/agent/agent.store'
+import { executionAdapter } from '../../../../features/execution/execution.adapter'
 import { getAssistantPlaceholder, getLiveExecutionStage } from '../../../../features/execution/execution.presentation'
 import { useExecutionStore } from '../../../../features/execution/execution.store'
 import type { ConversationMessage, ExecutionStatus } from '../../../../features/execution/execution.types'
+import { notify } from '../../../../features/notifications/notify'
 import { useBuilderTabsStore } from '../../../../features/ui-shell/builderTabs.store'
 import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
@@ -39,6 +42,16 @@ function renderMessageContent(message: ConversationMessage) {
   return <span className="whitespace-pre-wrap break-words">{message.content}</span>
 }
 
+function previousUserInput(messages: ConversationMessage[], index: number): string | null {
+  for (let current = index - 1; current >= 0; current -= 1) {
+    const message = messages[current]
+    if (message.role === 'user' && message.content.trim().length > 0) {
+      return message.content.trim()
+    }
+  }
+  return null
+}
+
 function stageIcon(label: string) {
   if (label.includes('知识库')) return <Database size={14} className="text-primary" />
   if (label.includes('工具')) return <Wrench size={14} className="text-primary" />
@@ -46,7 +59,8 @@ function stageIcon(label: string) {
 }
 
 export function PreviewTabPage() {
-  const { current_execution_id, status, final_answer, error_message, termination_reason, preview_url, conversation_messages, conversation_cleared_execution_id, step_logs } =
+  const currentAgentId = useAgentStore((state) => state.current_agent_id)
+  const { current_execution_id, status, final_answer, error_message, termination_reason, last_user_input, preview_url, conversation_messages, conversation_cleared_execution_id, step_logs } =
     useExecutionStore()
   const openRunLogsTab = useBuilderTabsStore((state) => state.openRunLogsTab)
   const setTabStateByType = useBuilderTabsStore((state) => state.setTabStateByType)
@@ -75,6 +89,14 @@ export function PreviewTabPage() {
     })
   }, [hasConversation, setTabStateByType, status])
 
+  const handleRegenerate = (input: string | null) => {
+    if (currentAgentId === null || input === null) {
+      notify.warning('没有可重新生成的用户输入')
+      return
+    }
+    void executionAdapter.startExecution(currentAgentId, input)
+  }
+
   let body: ReactNode
   if (!hasConversation) {
     body = (
@@ -97,17 +119,29 @@ export function PreviewTabPage() {
               <p className="mt-1 text-xs leading-relaxed text-text-sub">{liveStage.description}</p>
             </div>
           ) : null}
-          {conversation_messages.map((message) => (
-            <MessageBubbleRich
-              key={message.id}
-              role={message.role}
-              badge={message.knowledge_badge ?? null}
-              tone={message.source === 'opening' || message.source === 'activity' ? 'muted' : 'normal'}
-              content={renderMessageContent(message)}
-            />
-          ))}
+          {conversation_messages.map((message, index) => {
+            const regenerateInput = message.role === 'assistant' ? previousUserInput(conversation_messages, index) : null
+            return (
+              <MessageBubbleRich
+                key={message.id}
+                role={message.role}
+                badge={message.knowledge_badge ?? null}
+                tone={message.source === 'opening' || message.source === 'activity' ? 'muted' : 'normal'}
+                content={renderMessageContent(message)}
+                contentText={message.content}
+                status={message.status}
+                onRegenerate={message.role === 'assistant' && regenerateInput !== null ? () => handleRegenerate(regenerateInput) : undefined}
+              />
+            )
+          })}
           {shouldShowLiveAssistant ? (
-            <MessageBubbleRich role="assistant" content={<RichContentRenderer content={liveContent} />} />
+            <MessageBubbleRich
+              role="assistant"
+              content={<RichContentRenderer content={liveContent} />}
+              contentText={liveContent}
+              status={status}
+              onRegenerate={() => handleRegenerate(last_user_input)}
+            />
           ) : null}
         </div>
       </div>

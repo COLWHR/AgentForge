@@ -6,9 +6,11 @@ import { useExecutionStore } from './execution.store'
 import {
   IDLE_EXECUTION_STATE,
   type ConversationMessage,
+  type ExecutionRuntimeState,
   type DeploymentStatus,
   type ExecutionSnapshot,
   type ExecutionStepLog,
+  type ExecutionStoreState,
   type ExecutionStatus,
   type PreviewPhase,
 } from './execution.types'
@@ -28,6 +30,7 @@ interface ExecuteResponse {
 }
 
 const STARTABLE_STATUSES: ExecutionStatus[] = ['IDLE', 'SUCCEEDED', 'FAILED', 'TERMINATED']
+const SESSION_TITLE_MAX_LENGTH = 24
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -44,6 +47,42 @@ function createUserConversationMessage(input: string): ConversationMessage {
   }
 }
 
+function summarizeConversationTitle(input: string | null, messages: ConversationMessage[], fallback = '新对话'): string {
+  const candidate =
+    (typeof input === 'string' && input.trim().length > 0 ? input : null) ??
+    messages.find((message) => message.role === 'user' && message.content.trim().length > 0)?.content ??
+    fallback
+  const normalized = candidate.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= SESSION_TITLE_MAX_LENGTH) {
+    return normalized
+  }
+  return `${normalized.slice(0, SESSION_TITLE_MAX_LENGTH).trim()}...`
+}
+
+function syncActiveConversationState(
+  state: ExecutionStoreState,
+  runtime: Partial<ExecutionRuntimeState>,
+): Pick<ExecutionStoreState, 'conversation_sessions'> {
+  if (state.active_conversation_id === null) {
+    return { conversation_sessions: state.conversation_sessions }
+  }
+
+  const nextMessages = runtime.conversation_messages ?? state.conversation_messages
+  const nextLastUserInput = runtime.last_user_input ?? state.last_user_input
+  return {
+    conversation_sessions: state.conversation_sessions.map((session) =>
+      session.id === state.active_conversation_id
+        ? {
+            ...session,
+            ...runtime,
+            title: summarizeConversationTitle(nextLastUserInput, nextMessages, session.title),
+            updated_at: Date.now(),
+          }
+        : session,
+    ),
+  }
+}
+
 function buildConversationHistory(messages: ConversationMessage[]): ConversationHistoryItem[] {
   return messages
     .filter((message) => {
@@ -54,9 +93,9 @@ function buildConversationHistory(messages: ConversationMessage[]): Conversation
         return false
       }
       if (message.role === 'user') {
-        return message.execution_id !== null && message.status !== 'FAILED'
+        return message.execution_id !== null && message.status === 'SUCCEEDED'
       }
-      return message.status !== 'PENDING' && message.status !== 'FAILED'
+      return message.status === 'SUCCEEDED'
     })
     .map((message) => ({
       role: message.role,
@@ -349,13 +388,14 @@ export const executionAdapter = {
   },
 
   handleNewConversation() {
-    useExecutionStore.getState().resetExecution()
+    const agentStore = useAgentStore.getState()
+    useExecutionStore.getState().createConversationSession(agentStore.current_agent_id, agentStore.current_agent_detail?.opening_statement ?? null)
   },
 
   async startExecution(agent_id: string, input: string): Promise<ExecuteResponse | null> {
     const agentStore = useAgentStore.getState()
-    const store = useExecutionStore.getState()
     const normalizedInput = input.trim()
+    let store = useExecutionStore.getState()
     const canStart = STARTABLE_STATUSES.includes(store.status)
 
     if (
@@ -376,10 +416,16 @@ export const executionAdapter = {
       return null
     }
 
+    if (store.active_conversation_id === null) {
+      store.createConversationSession(agent_id, agentStore.current_agent_detail?.opening_statement ?? null)
+      store = useExecutionStore.getState()
+    }
+
     const conversationHistory = buildConversationHistory(store.conversation_messages)
     const userMessage = createUserConversationMessage(normalizedInput)
     const conversationMessages = [...store.conversation_messages, userMessage]
-    useExecutionStore.setState(() => ({
+    useExecutionStore.setState((state) => ({
+      ...state,
       ...IDLE_EXECUTION_STATE,
       current_execution_id: null,
       is_execution_starting: true,
@@ -387,6 +433,15 @@ export const executionAdapter = {
       last_user_input: normalizedInput,
       conversation_messages: conversationMessages,
       conversation_cleared_execution_id: null,
+      ...syncActiveConversationState(state, {
+        ...IDLE_EXECUTION_STATE,
+        current_execution_id: null,
+        is_execution_starting: true,
+        status: 'PENDING',
+        last_user_input: normalizedInput,
+        conversation_messages: conversationMessages,
+        conversation_cleared_execution_id: null,
+      }),
     }))
 
     try {
@@ -400,7 +455,8 @@ export const executionAdapter = {
         message.id === userMessage.id ? { ...message, execution_id: executionId } : message,
       )
 
-      useExecutionStore.setState(() => ({
+      useExecutionStore.setState((state) => ({
+        ...state,
         ...IDLE_EXECUTION_STATE,
         current_execution_id: executionId,
         is_execution_starting: false,
@@ -408,6 +464,15 @@ export const executionAdapter = {
         last_user_input: normalizedInput,
         preview_phase: 'planning',
         conversation_messages: messagesWithExecutionId,
+        ...syncActiveConversationState(state, {
+          ...IDLE_EXECUTION_STATE,
+          current_execution_id: executionId,
+          is_execution_starting: false,
+          status: 'PENDING',
+          last_user_input: normalizedInput,
+          preview_phase: 'planning',
+          conversation_messages: messagesWithExecutionId,
+        }),
       }))
 
       return {
@@ -415,27 +480,43 @@ export const executionAdapter = {
       }
     } catch (error) {
       const apiError = normalizeApiError(error)
-      useExecutionStore.setState(() => ({
-        ...IDLE_EXECUTION_STATE,
-        is_execution_starting: false,
-        status: 'FAILED',
-        error_message: apiError.message,
-        termination_reason: apiError.message,
-        last_user_input: normalizedInput,
-        preview_phase: 'failed',
-        deployment_status: 'FAILED',
-        conversation_messages: [
+      useExecutionStore.setState((state) => {
+        const failedConversationMessages = [
           ...conversationMessages,
           {
             id: `assistant:start-failed:${Date.now()}`,
-            role: 'assistant',
+            role: 'assistant' as const,
             content: apiError.message,
             execution_id: null,
-            status: 'FAILED',
-            source: 'chat',
+            status: 'FAILED' as const,
+            source: 'chat' as const,
           },
-        ],
-      }))
+        ]
+        return {
+          ...state,
+          ...IDLE_EXECUTION_STATE,
+          is_execution_starting: false,
+          status: 'FAILED',
+          error_message: apiError.message,
+          termination_reason: apiError.message,
+          last_user_input: normalizedInput,
+          preview_phase: 'failed',
+          deployment_status: 'FAILED',
+          conversation_messages: failedConversationMessages,
+          ...syncActiveConversationState(state, {
+            ...IDLE_EXECUTION_STATE,
+            is_execution_starting: false,
+            status: 'FAILED',
+            error_message: apiError.message,
+            termination_reason: apiError.message,
+            last_user_input: normalizedInput,
+            preview_phase: 'failed',
+            deployment_status: 'FAILED',
+            conversation_messages: failedConversationMessages,
+          }),
+        }
+      })
+      useExecutionStore.getState().finishExecution()
       notify.error(apiError.message)
       return null
     }

@@ -157,6 +157,8 @@ class AgentCapabilityFlags(BaseModel):
 class AgentRuntimeConfig(BaseModel):
     temperature: float = 0.7
     max_tokens: Optional[int] = None
+    context_window: Optional[int] = None
+    reserved_completion_tokens: Optional[int] = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -290,7 +292,7 @@ class ExecuteAgentRequest(BaseModel):
 class ExecuteAgentResponse(BaseModel):
     execution_id: UUID4
     final_state: ExecutionState
-    termination_reason: TerminationReason
+    termination_reason: Optional[TerminationReason] = None
     steps_used: int
     request_id: str
 

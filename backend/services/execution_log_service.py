@@ -157,6 +157,29 @@ class ExecutionLogService:
             await session.commit()
             logger.info(f"Execution log completed: {execution_id} | Status: {status}")
 
+    async def update_streaming_answer(
+        self,
+        execution_id: uuid.UUID,
+        content: str,
+    ) -> None:
+        async with AsyncSessionLocal() as session:
+            stmt_get = select(ExecutionLog.data).where(ExecutionLog.execution_id == execution_id)
+            result = await session.execute(stmt_get)
+            existing_data = result.scalar_one_or_none() or {}
+            existing_data["streaming_answer"] = content
+            stmt = (
+                update(ExecutionLog)
+                .where(ExecutionLog.execution_id == execution_id)
+                .values(
+                    status="RUNNING",
+                    final_answer=content,
+                    updated_at=datetime.now(timezone.utc),
+                    data=existing_data,
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+
     async def append_react_step(
         self,
         execution_id: uuid.UUID,

@@ -6,7 +6,7 @@ import { useAgentStore } from '../agent/agent.store'
 import { executionAdapter } from './execution.adapter'
 import { useExecutionStore } from './execution.store'
 
-const POLLING_INTERVAL_MS = 1000
+const POLLING_INTERVAL_MS = 250
 const MAX_CONSECUTIVE_FAILURES = 3
 
 export function useExecutionPolling(execution_id: string | null) {

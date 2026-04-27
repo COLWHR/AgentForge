@@ -1,15 +1,25 @@
 import { Database, FileText, Search, Trash2, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
 
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { knowledgeAdapter, type KnowledgeDocument, type KnowledgeSearchResult } from '../../../../features/knowledge/knowledge.adapter'
 import { notify } from '../../../../features/notifications/notify'
+import { cn } from '../../../../lib/cn'
 import { Button } from '../../../ui/Button'
 import { Input } from '../../../ui/Input'
+
+const uploadAccept = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const maxUploadFileSize = 100 * 1024 * 1024
 
 function formatDate(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+function isSupportedUploadFile(file: File): boolean {
+  const fileName = file.name.toLowerCase()
+  return fileName.endsWith('.pdf') || fileName.endsWith('.docx')
 }
 
 export function KnowledgeTabPage() {
@@ -25,6 +35,7 @@ export function KnowledgeTabPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isFileDragActive, setIsFileDragActive] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
 
   const canSave = currentAgentId !== null && title.trim().length > 0 && content.trim().length > 0 && !isSaving
@@ -87,6 +98,57 @@ export function KnowledgeTabPage() {
     } finally {
       setIsUploading(false)
     }
+  }
+
+  function selectUploadFile(file: File | null) {
+    if (file === null) return
+    if (!isSupportedUploadFile(file)) {
+      notify.error('仅支持 PDF 或 Word（.docx）文件')
+      return
+    }
+    if (file.size > maxUploadFileSize) {
+      notify.error('文件不能超过 100MB')
+      return
+    }
+    setSelectedFile(file)
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    selectUploadFile(event.target.files?.[0] ?? null)
+    event.target.value = ''
+  }
+
+  function handleFileDragEnter(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!isUploading) {
+      setIsFileDragActive(true)
+    }
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = isUploading ? 'none' : 'copy'
+    if (!isUploading) {
+      setIsFileDragActive(true)
+    }
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsFileDragActive(false)
+    }
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsFileDragActive(false)
+    if (isUploading) return
+    selectUploadFile(event.dataTransfer.files?.[0] ?? null)
   }
 
   async function handleSearch() {
@@ -175,21 +237,37 @@ export function KnowledgeTabPage() {
                 上传文件
               </div>
               <Input id="knowledge-file-title" label="文件标题" placeholder="留空则使用文件名" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
-              <label className="block rounded-token-md border border-dashed border-border bg-bg-soft/50 px-4 py-4 text-center text-sm text-text-sub">
+              <label
+                htmlFor="knowledge-file-upload"
+                className={cn(
+                  'flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-token-md border border-dashed px-4 py-5 text-center text-sm transition-colors duration-200',
+                  'focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/40',
+                  isUploading ? 'cursor-not-allowed opacity-60' : 'hover:border-primary/60 hover:bg-primary/5',
+                  isFileDragActive ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-bg-soft/50 text-text-sub',
+                )}
+                onDragEnter={handleFileDragEnter}
+                onDragOver={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
+                onDrop={handleFileDrop}
+              >
                 <input
+                  id="knowledge-file-upload"
                   type="file"
-                  accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept={uploadAccept}
                   className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    setSelectedFile(file)
-                    event.target.value = ''
-                  }}
+                  disabled={isUploading}
+                  onChange={handleFileInputChange}
                 />
                 {selectedFile ? (
-                  <span className="font-medium text-text-main">{selectedFile.name}</span>
+                  <>
+                    <span className="font-medium text-text-main">{selectedFile.name}</span>
+                    <span className="text-xs text-text-muted">点击可重新选择，或拖拽新文件替换</span>
+                  </>
                 ) : (
-                  <span>选择 PDF 或 Word（.docx）文件</span>
+                  <>
+                    <span className="font-medium text-text-main">点击选择文件，或拖拽文件到此处</span>
+                    <span className="text-xs text-text-muted">支持 PDF、Word（.docx）</span>
+                  </>
                 )}
               </label>
               <div className="flex items-center justify-between gap-2 text-xs text-text-muted">

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypedDict
@@ -31,6 +32,7 @@ from backend.models.schemas import (
 )
 from backend.services.agent_runtime_assembler import ResolvedAgentRuntime
 from backend.services.agent_service import agent_service
+from backend.services.context_budget_manager import context_budget_manager
 from backend.services.knowledge_service import knowledge_service
 
 
@@ -71,6 +73,8 @@ class AgentExecutionState(TypedDict):
 
 class LangGraphExecutionStrategy:
     MAX_CONVERSATION_HISTORY_MESSAGES = 20
+    MAX_KNOWLEDGE_CONTEXT_CHARS = 3200
+    MAX_KNOWLEDGE_CHUNK_CHARS = 900
 
     FIXED_SAFETY_PROMPT = (
         "You are an AI coding agent.\n"
@@ -105,6 +109,7 @@ class LangGraphExecutionStrategy:
         model_gateway: Any,
         tool_runtime: Any,
         execution_log_service: Any,
+        context_budget_manager: Any = context_budget_manager,
         *,
         max_steps: int = 6,
         max_tool_calls: int = 4,
@@ -112,6 +117,7 @@ class LangGraphExecutionStrategy:
         self.model_gateway = model_gateway
         self.tool_runtime = tool_runtime
         self.execution_log_service = execution_log_service
+        self.context_budget_manager = context_budget_manager
         self.max_steps = max_steps
         self.max_tool_calls = max_tool_calls
 
@@ -122,8 +128,10 @@ class LangGraphExecutionStrategy:
         auth_context: AuthContext,
         request_id: str,
         conversation_history: Optional[List[ConversationHistoryMessage]] = None,
+        execution_id: Optional[uuid.UUID] = None,
+        start_log: bool = True,
     ) -> ExecutionResult:
-        execution_id = uuid.uuid4()
+        execution_id = execution_id or uuid.uuid4()
 
         async with AsyncSessionLocal() as db:
             agent = await agent_service.get_agent_raw(db, uuid.UUID(agent_id))
@@ -140,14 +148,15 @@ class LangGraphExecutionStrategy:
             user_input=user_input,
         )
 
-        await self.execution_log_service.start_execution(
-            execution_id=execution_id,
-            agent_id=agent.id,
-            team_id=uuid.UUID(auth_context.team_id),
-            request_id=request_id,
-            initial_state=ExecutionState.INIT.value,
-            input_data=user_input,
-        )
+        if start_log:
+            await self.execution_log_service.start_execution(
+                execution_id=execution_id,
+                agent_id=agent.id,
+                team_id=uuid.UUID(auth_context.team_id),
+                request_id=request_id,
+                initial_state=ExecutionState.INIT.value,
+                input_data=user_input,
+            )
 
         preflight_failure = await self._preflight_runtime(
             execution_id=execution_id,
@@ -417,25 +426,62 @@ class LangGraphExecutionStrategy:
         )
         step_logs = list(state["step_logs"])
         model_step_index = self._next_step_log_index(step_logs)
+        context_budget = self.context_budget_manager.fit(
+            messages=state["messages"],
+            tools=call_tools,
+            model_name=model_config.model,
+            max_completion_tokens=model_config.max_tokens,
+            runtime_config=runtime_cfg,
+        )
+        context_budget_report = context_budget.report.model_dump()
+        effective_max_tokens = model_config.max_tokens
+        if isinstance(model_config.max_tokens, int) and model_config.max_tokens > context_budget.report.reserved_completion_tokens:
+            effective_max_tokens = context_budget.report.reserved_completion_tokens
+        provider_model_config = model_config.model_copy(update={"max_tokens": effective_max_tokens})
+
         logger.bind(
             event="execution_debug_before_model_call",
             execution_id=str(state["execution_id"]),
             step_index=model_step_index,
-            messages_count=len(state["messages"]),
-            tools_attached=bool(call_tools),
-            tool_names=state["tool_names"] if call_tools else [],
+            messages_count=len(context_budget.messages),
+            original_messages_count=len(state["messages"]),
+            tools_attached=bool(context_budget.tools),
+            tool_names=state["tool_names"] if context_budget.tools else [],
             forced_tool_name=forced_tool_name,
+            context_budget=context_budget_report,
         ).info("Calling model gateway")
 
         try:
+            streamed_content_parts: List[str] = []
+            last_stream_update_at = 0.0
+
+            async def update_streaming_content(delta: str) -> None:
+                nonlocal last_stream_update_at
+                streamed_content_parts.append(delta)
+                now = time.monotonic()
+                content = "".join(streamed_content_parts)
+                if now - last_stream_update_at < 0.2 and len(delta) < 24:
+                    return
+                last_stream_update_at = now
+                await self.execution_log_service.update_streaming_answer(
+                    execution_id=state["execution_id"],
+                    content=content,
+                )
+
             model_resp: GatewayResponse = await self.model_gateway.call(
-                messages=state["messages"],
-                tools=call_tools,
-                config=model_config,
+                messages=context_budget.messages,
+                tools=context_budget.tools,
+                config=provider_model_config,
                 provider_url=agent_cfg.get("llm_provider_url", ""),
                 api_key=decrypt_api_key(agent_cfg.get("llm_api_key_encrypted", "")),
                 tool_choice=tool_choice,
+                on_content_delta=update_streaming_content,
             )
+            if streamed_content_parts:
+                await self.execution_log_service.update_streaming_answer(
+                    execution_id=state["execution_id"],
+                    content=model_resp.content or "".join(streamed_content_parts),
+                )
         except ModelGatewayException as exc:
             error_payload = (exc.data or {}).get("error", {})
             raw_error_details = error_payload.get("details")
@@ -455,12 +501,15 @@ class LangGraphExecutionStrategy:
                 payload={
                     "model": model_config.model,
                     "temperature": model_config.temperature,
-                    "max_tokens": model_config.max_tokens,
-                    "messages_count": len(state["messages"]),
-                    "tools_attached": bool(call_tools),
-                    "available_tool_names": state["tool_names"] if call_tools else [],
+                    "max_tokens": provider_model_config.max_tokens,
+                    "requested_max_tokens": model_config.max_tokens,
+                    "messages_count": len(context_budget.messages),
+                    "original_messages_count": len(state["messages"]),
+                    "tools_attached": bool(context_budget.tools),
+                    "available_tool_names": state["tool_names"] if context_budget.tools else [],
                     "forced_tool_name": forced_tool_name,
                     "finish_reason": "error",
+                    "context_budget": context_budget_report,
                     "gateway_error": {
                         "error_source": error.error_source,
                         "error_code": error.error_code,
@@ -509,11 +558,14 @@ class LangGraphExecutionStrategy:
             payload={
                 "model": model_config.model,
                 "temperature": model_config.temperature,
-                "max_tokens": model_config.max_tokens,
-                "messages_count": len(state["messages"]),
-                "tools_attached": bool(call_tools),
-                "available_tool_names": state["tool_names"] if call_tools else [],
+                "max_tokens": provider_model_config.max_tokens,
+                "requested_max_tokens": model_config.max_tokens,
+                "messages_count": len(context_budget.messages),
+                "original_messages_count": len(state["messages"]),
+                "tools_attached": bool(context_budget.tools),
+                "available_tool_names": state["tool_names"] if context_budget.tools else [],
                 "forced_tool_name": forced_tool_name,
+                "context_budget": context_budget_report,
                 "content_preview": (model_resp.content or "")[:1200],
                 "tool_calls": [tool_call.model_dump() for tool_call in tool_calls],
                 "finish_reason": model_resp.finish_reason,
@@ -980,6 +1032,40 @@ class LangGraphExecutionStrategy:
         return ""
 
     @staticmethod
+    def _truncate_knowledge_context_items(items: List[Any]) -> tuple[List[Dict[str, Any]], str, int, int]:
+        blocks: List[str] = []
+        metadata: List[Dict[str, Any]] = []
+        total_original_chars = 0
+        remaining_chars = LangGraphExecutionStrategy.MAX_KNOWLEDGE_CONTEXT_CHARS
+
+        for index, item in enumerate(items, start=1):
+            original_content = item.content or ""
+            total_original_chars += len(original_content)
+            if remaining_chars <= 0:
+                break
+
+            content_limit = min(LangGraphExecutionStrategy.MAX_KNOWLEDGE_CHUNK_CHARS, remaining_chars)
+            injected_content = original_content[:content_limit]
+            remaining_chars -= len(injected_content)
+            was_truncated = len(injected_content) < len(original_content)
+            suffix = "\n[内容已截断]" if was_truncated else ""
+            blocks.append(f"[{index}] {item.title}\n{injected_content}{suffix}")
+            metadata.append(
+                {
+                    "document_id": str(item.document_id),
+                    "chunk_id": str(item.chunk_id),
+                    "title": item.title,
+                    "score": item.score,
+                    "content_preview": injected_content[:400],
+                    "original_content_chars": len(original_content),
+                    "injected_content_chars": len(injected_content),
+                    "truncated": was_truncated,
+                }
+            )
+
+        return metadata, "\n\n".join(blocks), total_original_chars, LangGraphExecutionStrategy.MAX_KNOWLEDGE_CONTEXT_CHARS - remaining_chars
+
+    @staticmethod
     async def _retrieve_knowledge_details(state: AgentExecutionState) -> Dict[str, Any]:
         try:
             async with AsyncSessionLocal() as db:
@@ -990,25 +1076,16 @@ class LangGraphExecutionStrategy:
                     query=state["user_input"],
                     limit=4,
                 )
-                context_blocks = [
-                    f"[{index}] {item.title}\n{item.content}"
-                    for index, item in enumerate(results, start=1)
-                ]
+                knowledge_hits, context, original_chars, injected_chars = LangGraphExecutionStrategy._truncate_knowledge_context_items(results)
                 return {
                     "query": state["user_input"],
                     "matched": len(results) > 0,
                     "matched_count": len(results),
-                    "knowledge_hits": [
-                        {
-                            "document_id": str(item.document_id),
-                            "chunk_id": str(item.chunk_id),
-                            "title": item.title,
-                            "score": item.score,
-                            "content_preview": item.content[:400],
-                        }
-                        for item in results
-                    ],
-                    "context": "\n\n".join(context_blocks),
+                    "knowledge_hits": knowledge_hits,
+                    "context": context,
+                    "original_context_chars": original_chars,
+                    "injected_context_chars": injected_chars,
+                    "context_truncated": injected_chars < original_chars,
                 }
         except Exception as exc:
             logger.bind(

@@ -1,5 +1,6 @@
 import json
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,7 +26,12 @@ def _auth_context() -> AuthContext:
     )
 
 
-async def _create_agent(db_session, *, supports_tools: bool = True) -> uuid.UUID:
+async def _create_agent(
+    db_session,
+    *,
+    supports_tools: bool = True,
+    runtime_config: dict | None = None,
+) -> uuid.UUID:
     agent_id = uuid.uuid4()
     db_session.add(
         Agent(
@@ -36,7 +42,7 @@ async def _create_agent(db_session, *, supports_tools: bool = True) -> uuid.UUID
                 "llm_provider_url": "https://example.com/v1",
                 "llm_api_key_encrypted": encrypt_api_key("test-key"),
                 "llm_model_name": "gpt-4o-mini",
-                "runtime_config": {"temperature": 0.0},
+                "runtime_config": runtime_config or {"temperature": 0.0},
                 "capability_flags": {"supports_tools": supports_tools},
                 "constraints": {"max_steps": 4},
             },
@@ -84,6 +90,27 @@ def _tool_schema(name: str, properties: dict, required: list[str]) -> dict:
             },
         },
     }
+
+
+def test_langgraph_strategy_truncates_injected_knowledge_context():
+    long_content = "知识内容" * 1000
+    results = [
+        SimpleNamespace(
+            document_id=uuid.uuid4(),
+            chunk_id=uuid.uuid4(),
+            title=f"资料 {index}",
+            content=long_content,
+            score=1.0,
+        )
+        for index in range(4)
+    ]
+
+    knowledge_hits, context, original_chars, injected_chars = LangGraphExecutionStrategy._truncate_knowledge_context_items(results)
+
+    assert len(context) < original_chars
+    assert injected_chars <= LangGraphExecutionStrategy.MAX_KNOWLEDGE_CONTEXT_CHARS
+    assert len(knowledge_hits) == 4
+    assert all(hit["truncated"] for hit in knowledge_hits)
 
 
 def _resolved_runtime(
@@ -163,6 +190,77 @@ async def test_langgraph_strategy_includes_conversation_history_in_model_message
         "好的，我记住了。",
         "我刚才说我叫什么？",
     ]
+
+
+@pytest.mark.asyncio
+async def test_langgraph_strategy_trims_old_history_before_model_call(db_session):
+    agent_id = await _create_agent(
+        db_session,
+        runtime_config={"temperature": 0.0, "context_window": 1200, "reserved_completion_tokens": 64},
+    )
+    model_gateway = AsyncMock()
+    tool_runtime = AsyncMock()
+    tool_runtime.resolve_agent_runtime.return_value = _resolved_runtime(agent_id, [])
+    model_gateway.call.return_value = GatewayResponse(
+        content="收到最新问题。",
+        token_usage=TokenUsage(total_tokens=6),
+        finish_reason="stop",
+    )
+    strategy = LangGraphExecutionStrategy(
+        model_gateway=model_gateway,
+        tool_runtime=tool_runtime,
+        execution_log_service=execution_log_service,
+    )
+
+    result = await strategy.run(
+        agent_id=str(agent_id),
+        user_input="请回答最新问题。",
+        auth_context=_auth_context(),
+        request_id="req-context-budget-trim",
+        conversation_history=[
+            ConversationHistoryMessage(role="user", content="旧问题 " * 900),
+            ConversationHistoryMessage(role="assistant", content="旧回答 " * 900),
+        ],
+    )
+
+    first_call_kwargs = model_gateway.call.await_args.kwargs
+    messages = first_call_kwargs["messages"]
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert [message.role for message in messages] == ["system", "user"]
+    assert messages[-1].content == "请回答最新问题。"
+
+
+@pytest.mark.asyncio
+async def test_langgraph_strategy_logs_context_budget_but_still_calls_model(db_session):
+    agent_id = await _create_agent(
+        db_session,
+        runtime_config={"temperature": 0.0, "context_window": 300, "reserved_completion_tokens": 64},
+    )
+    model_gateway = AsyncMock()
+    tool_runtime = AsyncMock()
+    tool_runtime.resolve_agent_runtime.return_value = _resolved_runtime(agent_id, [])
+    model_gateway.call.return_value = GatewayResponse(
+        content="收到最新问题。",
+        token_usage=TokenUsage(total_tokens=6),
+        finish_reason="stop",
+    )
+    strategy = LangGraphExecutionStrategy(
+        model_gateway=model_gateway,
+        tool_runtime=tool_runtime,
+        execution_log_service=execution_log_service,
+    )
+
+    result = await strategy.run(
+        agent_id=str(agent_id),
+        user_input="最新问题 " * 1000,
+        auth_context=_auth_context(),
+        request_id="req-context-budget-exceeded",
+    )
+
+    first_call_kwargs = model_gateway.call.await_args.kwargs
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.termination_reason == TerminationReason.SUCCESS
+    assert first_call_kwargs["messages"][-1].content == "最新问题 " * 1000
 
 
 @pytest.mark.asyncio

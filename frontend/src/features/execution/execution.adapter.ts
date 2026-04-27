@@ -393,6 +393,7 @@ export const executionAdapter = {
   },
 
   async startExecution(agent_id: string, input: string): Promise<ExecuteResponse | null> {
+
     const agentStore = useAgentStore.getState()
     const normalizedInput = input.trim()
     let store = useExecutionStore.getState()

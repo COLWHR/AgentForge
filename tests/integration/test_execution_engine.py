@@ -479,7 +479,7 @@ async def test_langgraph_strategy_turns_tool_failure_into_observation(db_session
 
 
 @pytest.mark.asyncio
-async def test_langgraph_strategy_forces_named_tool_when_user_explicitly_requests_it(db_session):
+async def test_langgraph_strategy_lets_model_choose_named_tool_structurally(db_session):
     agent_id = await _create_agent_with_tools(db_session, ["python_executor"])
     model_gateway = AsyncMock()
     tool_runtime = AsyncMock()
@@ -525,7 +525,7 @@ async def test_langgraph_strategy_forces_named_tool_when_user_explicitly_request
 
     first_call_kwargs = model_gateway.call.await_args_list[0].kwargs
     replay = await execution_log_service.get_execution_replay(result.execution_id, team_id=uuid.UUID(TEST_TEAM_ID))
-    assert first_call_kwargs["tool_choice"] == {"type": "function", "function": {"name": "builtin/python_executor"}}
+    assert first_call_kwargs["tool_choice"] is None
     assert result.status == ExecutionStatus.SUCCEEDED
     assert replay is not None
     assert replay["react_steps"][0]["action"]["tool_id"] == "builtin/python_executor"

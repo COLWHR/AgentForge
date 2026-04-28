@@ -26,7 +26,17 @@ export interface ExecutionStep {
   } | null
 }
 
-export type ExecutionStepLogPhase = 'knowledge_retrieval' | 'model_call' | 'tool_call' | 'observation' | 'final_answer'
+export type ExecutionStepLogPhase =
+  | 'intent_classification'
+  | 'pre_policy_gate'
+  | 'knowledge_retrieval'
+  | 'retrieval_policy_gate'
+  | 'model_call'
+  | 'tool_policy_gate'
+  | 'tool_call'
+  | 'observation'
+  | 'final_answer_policy_gate'
+  | 'final_answer'
 
 export interface ExecutionStepLog {
   execution_id: string
@@ -96,6 +106,7 @@ export interface ExecutionStoreState extends ExecutionRuntimeState {
   active_conversation_id: string | null
   startExecution: (agent_id: string, input: string) => void
   updateExecution: (data: ExecutionSnapshot) => void
+  markExecutionStoppedByUser: () => void
   finishExecution: () => void
   resetExecution: () => void
   clearConversationMessages: (agent_id?: string | null, opening_statement?: string | null) => void

@@ -18,11 +18,19 @@ import {
 interface ExecuteRequest {
   input: string
   conversation_history: ConversationHistoryItem[]
+  confirmed_tool_actions?: ConfirmedToolAction[]
 }
 
 interface ConversationHistoryItem {
   role: 'user' | 'assistant'
   content: string
+}
+
+export interface ConfirmedToolAction {
+  tool_id: string
+  action_summary?: string
+  arguments_hash: string
+  confirmed_at: string
 }
 
 interface ExecuteResponse {
@@ -31,6 +39,8 @@ interface ExecuteResponse {
 
 const STARTABLE_STATUSES: ExecutionStatus[] = ['IDLE', 'SUCCEEDED', 'FAILED', 'TERMINATED']
 const SESSION_TITLE_MAX_LENGTH = 24
+const STOPPED_BY_USER_MESSAGE = '已停止：用户主动停止了当前模型行为。'
+let startExecutionController: AbortController | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -282,10 +292,15 @@ function asReactSteps(value: unknown): ExecutionSnapshot['react_steps'] {
 
 function asStepLogPhase(value: unknown): ExecutionStepLog['phase'] {
   if (
+    value === 'intent_classification' ||
+    value === 'pre_policy_gate' ||
     value === 'knowledge_retrieval' ||
+    value === 'retrieval_policy_gate' ||
     value === 'model_call' ||
+    value === 'tool_policy_gate' ||
     value === 'tool_call' ||
     value === 'observation' ||
+    value === 'final_answer_policy_gate' ||
     value === 'final_answer'
   ) {
     return value
@@ -392,7 +407,7 @@ export const executionAdapter = {
     useExecutionStore.getState().createConversationSession(agentStore.current_agent_id, agentStore.current_agent_detail?.opening_statement ?? null)
   },
 
-  async startExecution(agent_id: string, input: string): Promise<ExecuteResponse | null> {
+  async startExecution(agent_id: string, input: string, confirmedToolActions: ConfirmedToolAction[] = []): Promise<ExecuteResponse | null> {
 
     const agentStore = useAgentStore.getState()
     const normalizedInput = input.trim()
@@ -445,12 +460,21 @@ export const executionAdapter = {
       }),
     }))
 
+    startExecutionController?.abort()
+    startExecutionController = new AbortController()
+
     try {
       const result = await apiClient.request<ExecuteResponse>(`/agents/${agent_id}/execute`, {
         method: 'POST',
-        body: { input: normalizedInput, conversation_history: conversationHistory } satisfies ExecuteRequest,
+        body: {
+          input: normalizedInput,
+          conversation_history: conversationHistory,
+          confirmed_tool_actions: confirmedToolActions,
+        } satisfies ExecuteRequest,
+        signal: startExecutionController.signal,
         authMode: 'required',
       })
+      startExecutionController = null
       const executionId = asExecutionId(result.data.execution_id)
       const messagesWithExecutionId = useExecutionStore.getState().conversation_messages.map((message) =>
         message.id === userMessage.id ? { ...message, execution_id: executionId } : message,
@@ -480,6 +504,10 @@ export const executionAdapter = {
         execution_id: executionId,
       }
     } catch (error) {
+      startExecutionController = null
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return null
+      }
       const apiError = normalizeApiError(error)
       useExecutionStore.setState((state) => {
         const failedConversationMessages = [
@@ -520,6 +548,35 @@ export const executionAdapter = {
       useExecutionStore.getState().finishExecution()
       notify.error(apiError.message)
       return null
+    }
+  },
+
+  async stopCurrentExecution(): Promise<void> {
+    const store = useExecutionStore.getState()
+    const executionId = store.current_execution_id
+
+    if (store.is_execution_starting && executionId === null) {
+      startExecutionController?.abort()
+      startExecutionController = null
+      useExecutionStore.getState().markExecutionStoppedByUser()
+      notify.info(STOPPED_BY_USER_MESSAGE)
+      return
+    }
+
+    if (executionId === null || (store.status !== 'PENDING' && store.status !== 'RUNNING')) {
+      return
+    }
+
+    useExecutionStore.getState().markExecutionStoppedByUser()
+    notify.info(STOPPED_BY_USER_MESSAGE)
+
+    try {
+      await apiClient.request(`/executions/${executionId}/stop`, {
+        method: 'POST',
+        authMode: 'required',
+      })
+    } catch (error) {
+      notify.error(normalizeApiError(error).message)
     }
   },
 

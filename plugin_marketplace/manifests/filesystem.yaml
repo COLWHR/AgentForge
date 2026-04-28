@@ -29,6 +29,12 @@ tools:
   - name: read_file
     display_name: Read File
     description: Read the contents of a file
+    risk_level: medium
+    side_effect: read
+    requires_confirmation: false
+    allowed_intents: ["TOOL_REQUIRED", "TOOL_OPTIONAL"]
+    domains: ["filesystem", "file"]
+    max_calls_per_run: 3
     input_schema:
       type: object
       properties:
@@ -40,6 +46,12 @@ tools:
   - name: write_file
     display_name: Write File
     description: Write content to a file
+    risk_level: high
+    side_effect: write
+    requires_confirmation: true
+    allowed_intents: ["HIGH_RISK_TOOL", "TOOL_REQUIRED"]
+    domains: ["filesystem", "file"]
+    max_calls_per_run: 1
     input_schema:
       type: object
       properties:
@@ -52,6 +64,12 @@ tools:
   - name: list_directory
     display_name: List Directory
     description: List files in a directory
+    risk_level: medium
+    side_effect: read
+    requires_confirmation: false
+    allowed_intents: ["TOOL_REQUIRED", "TOOL_OPTIONAL"]
+    domains: ["filesystem", "file"]
+    max_calls_per_run: 3
     input_schema:
       type: object
       properties:

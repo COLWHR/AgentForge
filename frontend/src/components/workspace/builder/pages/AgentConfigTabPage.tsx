@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import type { AgentDetail } from '../../../../features/agent/agent.adapter'
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { notify } from '../../../../features/notifications/notify'
+import { BUILTIN_TOOL_OPTIONS } from '../../../../features/tools/tools.catalog'
 import { useBuilderTabsStore } from '../../../../features/ui-shell/builderTabs.store'
 import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
@@ -13,6 +14,7 @@ type ConfigMode = 'create' | 'edit'
 
 const DEFAULT_OPENING_STATEMENT = '你好，我是你的智能体。你可以直接告诉我想测试的问题或任务。'
 const AGENT_CONFIG_DRAFT_STORAGE_KEY = 'AGENTFORGE_AGENT_CONFIG_DRAFT_V1'
+const DEFAULT_AGENT_TOOL_IDS = BUILTIN_TOOL_OPTIONS.map((tool) => tool.id)
 
 interface AgentConfigFormState {
   name: string
@@ -284,8 +286,8 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
             temperature: Number(form.temperature || '0.7'),
             max_tokens: form.max_tokens.trim().length > 0 ? Number(form.max_tokens) : null,
           },
-          capability_flags: { supports_tools: false },
-          tools: [],
+          capability_flags: { supports_tools: true },
+          tools: DEFAULT_AGENT_TOOL_IDS,
           constraints: { max_steps: 6 },
         })
         const created = useAgentStore.getState().current_agent_detail

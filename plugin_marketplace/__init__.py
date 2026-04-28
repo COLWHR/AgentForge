@@ -313,6 +313,16 @@ class MarketplaceAPI:
                 "input_schema": descriptor.input_schema,
                 "output_schema": descriptor.output_schema,
                 "mcp_tool_name": getattr(descriptor, "mcp_tool_name", None),
+                "risk_level": descriptor.risk_level,
+                "side_effect": descriptor.side_effect,
+                "requires_confirmation": descriptor.requires_confirmation,
+                "allowed_intents": descriptor.allowed_intents,
+                "domains": descriptor.domains,
+                "requires_auth_scope": descriptor.requires_auth_scope,
+                "max_calls_per_run": descriptor.max_calls_per_run,
+                "timeout_ms": descriptor.timeout_ms,
+                "returns_sensitive_data": descriptor.returns_sensitive_data,
+                "audit_payload_level": descriptor.audit_payload_level,
                 "openai_schema": descriptor.to_openai_schema(),
             }
             for descriptor in descriptors

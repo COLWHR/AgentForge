@@ -221,6 +221,81 @@ class BuiltinAdapter(BaseAdapter):
             "websearch": WebSearchTool(),
         }
 
+    RISK_PROFILES: dict[str, dict[str, Any]] = {
+        "echo": {
+            "risk_level": "low",
+            "side_effect": "none",
+            "requires_confirmation": False,
+            "allowed_intents": ["DIRECT_CHAT", "TOOL_OPTIONAL", "TOOL_REQUIRED"],
+            "domains": ["utility"],
+            "max_calls_per_run": 2,
+        },
+        "echo_tool": {
+            "risk_level": "low",
+            "side_effect": "none",
+            "requires_confirmation": False,
+            "allowed_intents": ["DIRECT_CHAT", "TOOL_OPTIONAL", "TOOL_REQUIRED"],
+            "domains": ["utility"],
+            "max_calls_per_run": 2,
+        },
+        "python_exec": {
+            "risk_level": "high",
+            "side_effect": "write",
+            "requires_confirmation": True,
+            "allowed_intents": ["HIGH_RISK_TOOL", "TOOL_REQUIRED"],
+            "domains": ["python"],
+            "max_calls_per_run": 1,
+        },
+        "python_executor": {
+            "risk_level": "high",
+            "side_effect": "write",
+            "requires_confirmation": True,
+            "allowed_intents": ["HIGH_RISK_TOOL", "TOOL_REQUIRED"],
+            "domains": ["python"],
+            "max_calls_per_run": 1,
+        },
+        "python_add_tool": {
+            "risk_level": "low",
+            "side_effect": "none",
+            "requires_confirmation": False,
+            "allowed_intents": ["TOOL_REQUIRED", "TOOL_OPTIONAL"],
+            "domains": ["calculator", "python"],
+            "max_calls_per_run": 4,
+        },
+        "calculate": {
+            "risk_level": "low",
+            "side_effect": "none",
+            "requires_confirmation": False,
+            "allowed_intents": ["TOOL_REQUIRED", "TOOL_OPTIONAL"],
+            "domains": ["calculator", "utility"],
+            "max_calls_per_run": 4,
+        },
+        "caculate": {
+            "risk_level": "low",
+            "side_effect": "none",
+            "requires_confirmation": False,
+            "allowed_intents": ["TOOL_REQUIRED", "TOOL_OPTIONAL"],
+            "domains": ["calculator", "utility"],
+            "max_calls_per_run": 4,
+        },
+        "websearch": {
+            "risk_level": "medium",
+            "side_effect": "external_read",
+            "requires_confirmation": False,
+            "allowed_intents": ["TOOL_REQUIRED", "TOOL_OPTIONAL"],
+            "domains": ["web_search"],
+            "max_calls_per_run": 2,
+        },
+        "web_search": {
+            "risk_level": "medium",
+            "side_effect": "external_read",
+            "requires_confirmation": False,
+            "allowed_intents": ["TOOL_REQUIRED", "TOOL_OPTIONAL"],
+            "domains": ["web_search"],
+            "max_calls_per_run": 2,
+        },
+    }
+
     @property
     def tool_type(self) -> ToolType:
         return "builtin"
@@ -238,12 +313,14 @@ class BuiltinAdapter(BaseAdapter):
         descriptors = []
         for tool in self._tools.values():
             for alias in tool.aliases:
+                risk_profile = self.RISK_PROFILES.get(alias, {})
                 descriptors.append(ToolDescriptor(
                     extension_id_value=self.extension_id,
                     name_value=alias,
                     description_value=tool.description,
                     tool_type_value="builtin",
                     input_schema_value=tool.input_schema,
+                    **risk_profile,
                 ))
         return descriptors
 

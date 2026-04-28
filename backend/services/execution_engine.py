@@ -24,6 +24,8 @@ class ExecutionEngine:
         auth_context: AuthContext,
         request_id: Optional[str] = None,
         conversation_history: Optional[List[ConversationHistoryMessage]] = None,
+        confirmed_tool_actions: Optional[list[dict]] = None,
+        policy_overrides: Optional[dict] = None,
         execution_id: Optional[uuid.UUID] = None,
         start_log: bool = True,
     ) -> ExecutionResult:
@@ -41,6 +43,8 @@ class ExecutionEngine:
             auth_context=auth_context,
             request_id=request_id,
             conversation_history=conversation_history,
+            confirmed_tool_actions=confirmed_tool_actions,
+            policy_overrides=policy_overrides,
             execution_id=execution_id,
             start_log=start_log,
         )

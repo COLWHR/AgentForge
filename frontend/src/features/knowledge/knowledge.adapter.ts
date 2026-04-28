@@ -7,6 +7,15 @@ export interface KnowledgeDocument {
   title: string
   content: string
   chunk_count: number
+  document_type: string
+  source_filename: string | null
+  source_mime_type: string | null
+  source_hash: string | null
+  version_label: string | null
+  effective_from: string | null
+  effective_to: string | null
+  status: string
+  metadata: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -17,6 +26,14 @@ export interface KnowledgeSearchResult {
   title: string
   content: string
   score: number
+  match_type: string
+  document_type: string
+  article_no: string | null
+  article_label: string | null
+  section_path: string[]
+  page_no: number | null
+  citation_label: string
+  is_direct_evidence: boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,9 +47,41 @@ function asString(value: unknown, field: string): string {
   return value
 }
 
+function asOptionalString(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null
+  return asString(value, field)
+}
+
 function asNumber(value: unknown, field: string): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     throw new ApiError({ code: 'INVALID_RESPONSE_FORMAT', message: `知识库字段无效：${field}`, raw: value })
+  }
+  return value
+}
+
+function asOptionalNumber(value: unknown, field: string): number | null {
+  if (value === null || value === undefined) return null
+  return asNumber(value, field)
+}
+
+function asBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ApiError({ code: 'INVALID_RESPONSE_FORMAT', message: `知识库字段无效：${field}`, raw: value })
+  }
+  return value
+}
+
+function asStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new ApiError({ code: 'INVALID_RESPONSE_FORMAT', message: `知识库字段无效：${field}`, raw: value })
+  }
+  return value.map((item, index) => asString(item, `${field}[${index}]`))
+}
+
+function asMetadata(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return {}
+  if (!isRecord(value)) {
+    throw new ApiError({ code: 'INVALID_RESPONSE_FORMAT', message: '知识库字段无效：metadata', raw: value })
   }
   return value
 }
@@ -47,6 +96,15 @@ function mapDocument(raw: unknown): KnowledgeDocument {
     title: asString(raw.title, 'title'),
     content: asString(raw.content, 'content'),
     chunk_count: asNumber(raw.chunk_count, 'chunk_count'),
+    document_type: typeof raw.document_type === 'string' ? raw.document_type : 'other',
+    source_filename: asOptionalString(raw.source_filename, 'source_filename'),
+    source_mime_type: asOptionalString(raw.source_mime_type, 'source_mime_type'),
+    source_hash: asOptionalString(raw.source_hash, 'source_hash'),
+    version_label: asOptionalString(raw.version_label, 'version_label'),
+    effective_from: asOptionalString(raw.effective_from, 'effective_from'),
+    effective_to: asOptionalString(raw.effective_to, 'effective_to'),
+    status: typeof raw.status === 'string' ? raw.status : 'ACTIVE',
+    metadata: asMetadata(raw.metadata),
     created_at: asString(raw.created_at, 'created_at'),
     updated_at: asString(raw.updated_at, 'updated_at'),
   }
@@ -62,6 +120,14 @@ function mapSearchResult(raw: unknown): KnowledgeSearchResult {
     title: asString(raw.title, 'title'),
     content: asString(raw.content, 'content'),
     score: asNumber(raw.score, 'score'),
+    match_type: typeof raw.match_type === 'string' ? raw.match_type : 'keyword',
+    document_type: typeof raw.document_type === 'string' ? raw.document_type : 'other',
+    article_no: asOptionalString(raw.article_no, 'article_no'),
+    article_label: asOptionalString(raw.article_label, 'article_label'),
+    section_path: raw.section_path === undefined ? [] : asStringArray(raw.section_path, 'section_path'),
+    page_no: asOptionalNumber(raw.page_no, 'page_no'),
+    citation_label: typeof raw.citation_label === 'string' ? raw.citation_label : '',
+    is_direct_evidence: raw.is_direct_evidence === undefined ? true : asBoolean(raw.is_direct_evidence, 'is_direct_evidence'),
   }
 }
 

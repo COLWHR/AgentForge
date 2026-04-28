@@ -60,6 +60,16 @@ class ToolDescriptor(ToolInfo):
     output_schema_value: Dict[str, Any] = field(default_factory=lambda: {"type": "object"})
     display_name: Optional[str] = None
     mcp_tool_name: Optional[str] = None
+    risk_level: str = "medium"
+    side_effect: str = "read"
+    requires_confirmation: bool = False
+    allowed_intents: list[str] = field(default_factory=lambda: ["TOOL_REQUIRED", "TOOL_OPTIONAL"])
+    domains: list[str] = field(default_factory=list)
+    requires_auth_scope: list[str] = field(default_factory=list)
+    max_calls_per_run: int = 2
+    timeout_ms: int = 10000
+    returns_sensitive_data: bool = False
+    audit_payload_level: str = "summary"
 
     @property
     def id(self) -> str:

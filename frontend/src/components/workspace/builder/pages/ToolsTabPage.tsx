@@ -23,7 +23,10 @@ export function ToolsTabPage() {
   const isAgentReady = currentAgentId !== null && currentAgentDetail !== null && currentAgentDetail.is_available
 
   useEffect(() => {
-    setDraftToolIds(null)
+    const timer = window.setTimeout(() => {
+      setDraftToolIds(null)
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [currentAgentId])
 
   const toggleTool = (toolId: string) => {
@@ -42,7 +45,7 @@ export function ToolsTabPage() {
     setIsSaving(true)
     try {
       await updateAgent(currentAgentId, {
-        capability_flags: { supports_tools: selectedToolIds.length > 0 },
+        capability_flags: { supports_tools: true },
         tools: selectedToolIds,
       })
       setDraftToolIds(null)

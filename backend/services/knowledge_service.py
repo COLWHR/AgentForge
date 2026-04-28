@@ -1,7 +1,7 @@
+import hashlib
 import re
 import uuid
 from io import BytesIO
-from collections import Counter
 from datetime import timezone
 from typing import List
 from zipfile import BadZipFile
@@ -11,15 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.orm import KnowledgeChunk, KnowledgeDocument
 from backend.models.schemas import KnowledgeDocumentRead, KnowledgeSearchResult
+from backend.services.knowledge_parser import knowledge_parser
+from backend.services.knowledge_retrieval_ranker import knowledge_retrieval_ranker
 
 
 class KnowledgeService:
     CHUNK_SIZE = 900
     CHUNK_OVERLAP = 120
     MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-    SEARCH_MIN_SCORE = 2.0
-    SEARCH_MIN_UNIQUE_OVERLAP = 2
-    SEARCH_MIN_SINGLE_OVERLAP_SCORE = 2.0
     SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx"}
     SUPPORTED_UPLOAD_MIME_TYPES = {
         "application/pdf",
@@ -105,21 +104,56 @@ class KnowledgeService:
 
     @classmethod
     def _split_content(cls, content: str) -> list[str]:
-        normalized = re.sub(r"\n{3,}", "\n\n", content.strip())
-        if len(normalized) <= cls.CHUNK_SIZE:
-            return [normalized]
+        return [chunk.content for chunk in knowledge_parser.parse(title="", content=content)]
 
+    @classmethod
+    def _split_articles(cls, content: str) -> list[str]:
+        pattern = re.compile(r"(?=(第\s*[一二三四五六七八九十百0-9]+\s*条))")
+        parts = pattern.split(content)
+        if len(parts) < 3:
+            return []
         chunks: list[str] = []
-        start = 0
-        while start < len(normalized):
-            end = min(start + cls.CHUNK_SIZE, len(normalized))
-            chunk = normalized[start:end].strip()
+        prefix = parts[0].strip()
+        if prefix and len(prefix) > 20:
+            chunks.extend(cls._fallback_split(prefix))
+        for index in range(1, len(parts), 2):
+            label = parts[index].strip()
+            body = parts[index + 1] if index + 1 < len(parts) else ""
+            chunk = f"{label}{body}".strip()
             if chunk:
+                chunks.extend(cls._fallback_split(chunk, preserve_article=True))
+        return chunks
+
+    @classmethod
+    def _fallback_split(cls, content: str, *, preserve_article: bool = False) -> list[str]:
+        if len(content) <= 1200:
+            return [content.strip()]
+        chunks: list[str] = []
+        article_label = cls.extract_article_label(content) if preserve_article else None
+        start = 0
+        while start < len(content):
+            end = min(start + cls.CHUNK_SIZE, len(content))
+            chunk = content[start:end].strip()
+            if chunk:
+                if article_label and article_label not in chunk[:30]:
+                    chunk = f"{article_label}\n{chunk}"
                 chunks.append(chunk)
-            if end >= len(normalized):
+            if end >= len(content):
                 break
             start = max(end - cls.CHUNK_OVERLAP, start + 1)
         return chunks
+
+    @staticmethod
+    def chinese_number_to_int(value: str) -> int | None:
+        return knowledge_parser.chinese_number_to_int(value)
+
+    @classmethod
+    def extract_article_no(cls, text: str) -> str | None:
+        return knowledge_parser.extract_article_no(text)
+
+    @classmethod
+    def extract_article_label(cls, text: str) -> str | None:
+        return knowledge_parser.extract_article_label(text)
 
     @staticmethod
     def _as_iso(value: object) -> str:
@@ -135,6 +169,8 @@ class KnowledgeService:
         team_id: uuid.UUID,
         title: str,
         content: str,
+        source_filename: str | None = None,
+        source_mime_type: str | None = None,
     ) -> KnowledgeDocumentRead:
         document = KnowledgeDocument(
             id=uuid.uuid4(),
@@ -142,13 +178,25 @@ class KnowledgeService:
             team_id=team_id,
             title=title.strip(),
             content=content.strip(),
+            document_type=self._infer_document_type(title=title, content=content),
+            source_filename=source_filename,
+            source_mime_type=source_mime_type,
+            source_hash=hashlib.sha256(content.strip().encode("utf-8")).hexdigest(),
+            status="ACTIVE",
         )
         db.add(document)
         await db.flush()
 
-        chunks = self._split_content(document.content)
-        for index, chunk in enumerate(chunks):
-            token_text = " ".join(self._tokenize(f"{document.title}\n{chunk}"))
+        parsed_chunks = knowledge_parser.parse(title=document.title, content=document.content)
+        article_count = len({chunk.article_no for chunk in parsed_chunks if chunk.article_no})
+        document.document_metadata = {
+            **(document.document_metadata or {}),
+            "article_count": article_count,
+            "chunk_count": len(parsed_chunks),
+            "parser_version": "knowledge-parser-v1",
+        }
+        for index, chunk in enumerate(parsed_chunks):
+            token_text = " ".join(self._tokenize(f"{document.title}\n{chunk.content}"))
             db.add(
                 KnowledgeChunk(
                     id=uuid.uuid4(),
@@ -156,14 +204,35 @@ class KnowledgeService:
                     agent_id=agent_id,
                     team_id=team_id,
                     title=document.title,
-                    content=chunk,
+                    content=chunk.content,
                     chunk_index=index,
                     token_text=token_text,
+                    chunk_type=chunk.chunk_type,
+                    section_path=chunk.section_path,
+                    article_no=chunk.article_no,
+                    article_label=chunk.article_label,
+                    page_no=chunk.page_no,
+                    start_char=chunk.start_char,
+                    end_char=chunk.end_char,
+                    chunk_metadata=chunk.metadata,
                 )
             )
         await db.commit()
         await db.refresh(document)
-        return self._read_model(document, chunk_count=len(chunks))
+        return self._read_model(document, chunk_count=len(parsed_chunks))
+
+    @staticmethod
+    def _infer_document_type(*, title: str, content: str) -> str:
+        text = f"{title}\n{content}"
+        if any(keyword in text for keyword in ("校规", "学生管理", "学生手册", "考勤", "处分", "旷课")):
+            return "school_rule"
+        if "合同" in text:
+            return "contract"
+        if any(keyword in text for keyword in ("制度", "规定", "办法", "细则")):
+            return "policy"
+        if "手册" in text:
+            return "manual"
+        return "other"
 
     @classmethod
     def extract_uploaded_content(cls, *, filename: str, content_type: str | None, data: bytes) -> tuple[str, str]:
@@ -273,45 +342,57 @@ class KnowledgeService:
         team_id: uuid.UUID,
         query: str,
         limit: int = 5,
+        retrieval_mode: str = "optional_hybrid",
+        article_no: str | None = None,
+        include_near_misses: bool = True,
+        document_type: str | None = None,
     ) -> List[KnowledgeSearchResult]:
         normalized_query = query.strip().lower()
         query_tokens = self._filter_query_tokens(self._tokenize(query))
-        if not query_tokens:
+        requested_article_no = article_no or self.extract_article_no(query)
+        if not query_tokens and not requested_article_no:
             return []
-        query_counter = Counter(query_tokens)
 
-        stmt = select(KnowledgeChunk).where(KnowledgeChunk.agent_id == agent_id, KnowledgeChunk.team_id == team_id)
+        conditions = [KnowledgeChunk.agent_id == agent_id, KnowledgeChunk.team_id == team_id]
+        if document_type:
+            conditions.append(KnowledgeDocument.document_type == document_type)
+        stmt = (
+            select(KnowledgeChunk, KnowledgeDocument.document_type)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeChunk.document_id)
+            .where(*conditions)
+        )
         rows = await db.execute(stmt)
-        scored: list[tuple[float, KnowledgeChunk]] = []
-        for chunk in rows.scalars().all():
-            chunk_counter = Counter((chunk.token_text or "").split())
-            weighted_overlap = sum(
-                min(count, chunk_counter.get(token, 0)) * self._token_weight(token) for token, count in query_counter.items()
-            )
-            unique_overlap = sum(1 for token in query_counter if chunk_counter.get(token, 0) > 0)
-            phrase_bonus = 0.0
-            if normalized_query and normalized_query in (chunk.title or "").lower():
-                phrase_bonus += 2.0
-            if normalized_query and normalized_query in chunk.content.lower():
-                phrase_bonus += 2.0
-            score = float(weighted_overlap + phrase_bonus)
-            min_score = self.SEARCH_MIN_SCORE
-            if phrase_bonus == 0 and unique_overlap < self.SEARCH_MIN_UNIQUE_OVERLAP:
-                min_score = self.SEARCH_MIN_SINGLE_OVERLAP_SCORE
-            if score < min_score:
-                continue
-            scored.append((score, chunk))
+        chunk_rows = rows.all()
+        chunks = [chunk for chunk, _document_type in chunk_rows]
+        document_types = {chunk.id: document_type or "other" for chunk, document_type in chunk_rows}
 
-        scored.sort(key=lambda item: item[0], reverse=True)
         return [
             KnowledgeSearchResult(
                 document_id=chunk.document_id,
                 chunk_id=chunk.id,
                 title=chunk.title,
                 content=chunk.content,
-                score=score,
+                score=ranked.score,
+                match_type=ranked.match_type,
+                document_type=document_types.get(chunk.id, "other"),
+                article_no=chunk.article_no or self.extract_article_no(chunk.content),
+                article_label=chunk.article_label or self.extract_article_label(chunk.content),
+                section_path=chunk.section_path or [chunk.title, chunk.article_label or self.extract_article_label(chunk.content) or f"片段 {chunk.chunk_index + 1}"],
+                page_no=chunk.page_no,
+                citation_label=f"{chunk.title} / {chunk.article_label or self.extract_article_label(chunk.content) or f'片段 {chunk.chunk_index + 1}'}",
+                is_direct_evidence=ranked.is_direct_evidence,
             )
-            for score, chunk in scored[:limit]
+            for ranked in knowledge_retrieval_ranker.rank(
+                chunks=chunks,
+                query=normalized_query,
+                query_tokens=query_tokens,
+                retrieval_mode=retrieval_mode,
+                requested_article_no=requested_article_no,
+                include_near_misses=include_near_misses,
+                extract_article_no=self.extract_article_no,
+                token_weight=self._token_weight,
+            )[:limit]
+            for chunk in [ranked.chunk]
         ]
 
     async def build_context(
@@ -340,6 +421,15 @@ class KnowledgeService:
             title=document.title,
             content=document.content,
             chunk_count=chunk_count,
+            document_type=getattr(document, "document_type", "other") or "other",
+            source_filename=getattr(document, "source_filename", None),
+            source_mime_type=getattr(document, "source_mime_type", None),
+            source_hash=getattr(document, "source_hash", None),
+            version_label=getattr(document, "version_label", None),
+            effective_from=KnowledgeService._as_iso(document.effective_from) if getattr(document, "effective_from", None) else None,
+            effective_to=KnowledgeService._as_iso(document.effective_to) if getattr(document, "effective_to", None) else None,
+            status=getattr(document, "status", "ACTIVE") or "ACTIVE",
+            metadata=getattr(document, "document_metadata", None) or {},
             created_at=KnowledgeService._as_iso(document.created_at),
             updated_at=KnowledgeService._as_iso(document.updated_at),
         )

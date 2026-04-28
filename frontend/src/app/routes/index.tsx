@@ -1,24 +1,28 @@
+import { Suspense, type ReactNode } from 'react'
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 
-import { AppShell } from '../../layouts/AppShell'
-import { AgentsPage } from '../../pages/AgentsPage'
-import { LogsPage } from '../../pages/LogsPage'
-import { MarketplacePage } from '../../pages/MarketplacePage'
-import { NotFoundPage } from '../../pages/NotFoundPage'
-import { RunsPage } from '../../pages/RunsPage'
+import { AgentsPage, AppShell, LogsPage, MarketplacePage, NotFoundPage, RunsPage } from './lazyRoutes'
+
+function routeElement(element: ReactNode) {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-surface text-sm text-text-muted">加载中...</div>}>
+      {element}
+    </Suspense>
+  )
+}
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <AppShell />,
+    element: routeElement(<AppShell />),
     children: [
       { index: true, element: <Navigate to="/agents" replace /> },
-      { path: 'agents', element: <AgentsPage /> },
-      { path: 'runs', element: <RunsPage /> },
-      { path: 'marketplace', element: <MarketplacePage /> },
-      { path: 'logs', element: <LogsPage /> },
+      { path: 'agents', element: routeElement(<AgentsPage />) },
+      { path: 'runs', element: routeElement(<RunsPage />) },
+      { path: 'marketplace', element: routeElement(<MarketplacePage />) },
+      { path: 'logs', element: routeElement(<LogsPage />) },
       { path: 'settings', element: <Navigate to="/agents" replace /> },
-      { path: '*', element: <NotFoundPage /> },
+      { path: '*', element: routeElement(<NotFoundPage />) },
     ],
   },
 ])

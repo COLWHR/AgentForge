@@ -15,6 +15,7 @@ class ResolvedAgentRuntime:
     tool_schemas: List[Dict[str, Any]]
     resolved_tool_names: List[str]
     max_steps: int
+    tool_catalog_entries: List[Dict[str, Any]] = field(default_factory=list)
     unresolved_tools: List[str] = field(default_factory=list)
     configured_tools: List[str] = field(default_factory=list)
     bound_tool_ids: List[str] = field(default_factory=list)
@@ -39,7 +40,8 @@ class AgentRuntimeAssembler:
         user_input: str,
     ) -> ResolvedAgentRuntime:
         configured_tools = self._normalize_tool_ids(agent_config.get("tools") or [])
-        supports_tools = bool((agent_config.get("capability_flags") or {}).get("supports_tools", False))
+        capability_flags = agent_config.get("capability_flags") if isinstance(agent_config.get("capability_flags"), dict) else {}
+        supports_tools = not bool(capability_flags.get("tools_disabled", False))
         max_steps = int((agent_config.get("constraints") or {}).get("max_steps", self.default_max_steps))
 
         resolution_source = "bindings"
@@ -91,6 +93,7 @@ class AgentRuntimeAssembler:
             agent_config=agent_config,
             supports_tools=supports_tools,
             tool_schemas=tool_schemas,
+            tool_catalog_entries=catalog_entries,
             resolved_tool_names=resolved_tool_names,
             max_steps=max_steps,
             unresolved_tools=sorted(set(unresolved_tools)),

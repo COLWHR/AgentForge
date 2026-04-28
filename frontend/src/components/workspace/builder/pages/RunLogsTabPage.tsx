@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, AlertTriangle, Brain, CheckCircle2, Database, ExternalLink, Wrench } from 'lucide-react'
+import { Activity, AlertCircle, AlertTriangle, Brain, CheckCircle2, Database, ExternalLink, Filter, ShieldCheck, Wrench } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 
 import { useExecutionStore } from '../../../../features/execution/execution.store'
@@ -80,14 +80,23 @@ function knowledgeHitInfo(log: ExecutionStepLog): { hit: boolean; count: number 
 }
 
 function phaseLabel(phase: ExecutionStepLog['phase']): string {
+  if (phase === 'intent_classification') return '意图分类'
+  if (phase === 'pre_policy_gate') return '前置策略'
   if (phase === 'knowledge_retrieval') return '知识库调用'
+  if (phase === 'retrieval_policy_gate') return '检索策略'
   if (phase === 'model_call') return '模型调用'
+  if (phase === 'tool_policy_gate') return '工具策略'
   if (phase === 'tool_call') return '工具使用'
   if (phase === 'observation') return '工具结果'
+  if (phase === 'final_answer_policy_gate') return '答复策略'
   return '最终答复'
 }
 
 function phaseIcon(phase: ExecutionStepLog['phase']) {
+  if (phase === 'intent_classification') return <Filter size={14} className="text-text-muted" />
+  if (phase === 'pre_policy_gate' || phase === 'retrieval_policy_gate' || phase === 'tool_policy_gate' || phase === 'final_answer_policy_gate') {
+    return <ShieldCheck size={14} className="text-text-muted" />
+  }
   if (phase === 'knowledge_retrieval') return <Database size={14} className="text-text-muted" />
   if (phase === 'model_call') return <Brain size={14} className="text-text-muted" />
   if (phase === 'tool_call') return <Wrench size={14} className="text-text-muted" />
@@ -95,6 +104,20 @@ function phaseIcon(phase: ExecutionStepLog['phase']) {
 }
 
 function summarizeStepLog(log: ExecutionStepLog): string {
+  if (log.phase === 'intent_classification') {
+    const intent = readString(log.payload.intent_type) ?? '未知意图'
+    const subtype = readString(log.payload.query_subtype)
+    const confidence = readNumber(log.payload.confidence)
+    const suffix = confidence !== null ? `，置信度 ${confidence.toFixed(2)}` : ''
+    return subtype ? `识别为 ${intent} / ${subtype}${suffix}` : `识别为 ${intent}${suffix}`
+  }
+  if (log.phase === 'pre_policy_gate') {
+    const retrievalMode = readString(log.payload.retrieval_mode) ?? 'none'
+    const allowed = Array.isArray(log.payload.allowed_tool_ids_for_turn) ? log.payload.allowed_tool_ids_for_turn.length : 0
+    const blocked = Array.isArray(log.payload.blocked_tool_ids) ? log.payload.blocked_tool_ids.length : 0
+    const confirmation = log.payload.requires_user_confirmation === true ? '，需要确认' : ''
+    return `检索模式 ${retrievalMode}，允许工具 ${allowed} 个，拦截工具 ${blocked} 个${confirmation}`
+  }
   if (log.phase === 'knowledge_retrieval') {
     if (log.status === 'error') return '知识库检索异常'
     const { hit, count } = knowledgeHitInfo(log)
@@ -108,6 +131,22 @@ function summarizeStepLog(log: ExecutionStepLog): string {
     const toolCalls = Array.isArray(log.payload.tool_calls) ? log.payload.tool_calls.length : 0
     return toolCalls > 0 ? `模型请求使用 ${toolCalls} 个工具，结束原因：${finishReason}` : `模型完成本轮思考，结束原因：${finishReason}`
   }
+  if (log.phase === 'retrieval_policy_gate') {
+    if (log.payload.must_return_without_model === true) {
+      const code = readString(readRecord(log.payload.knowledge_miss)?.reason_code) ?? readString(log.payload.reason_code)
+      return code ? `检索策略阻断模型调用：${code}` : '检索策略阻断模型调用'
+    }
+    return log.payload.retrieval_optional_miss === true ? '检索未命中，但允许继续模型回答' : '检索策略允许继续'
+  }
+  if (log.phase === 'tool_policy_gate') {
+    const decision = readString(log.payload.decision) ?? (log.status === 'error' ? 'blocked' : 'allowed')
+    const code = readString(log.payload.reason_code)
+    const message = readString(log.payload.reason_message)
+    if (decision === 'blocked') {
+      return `工具策略已拦截${code ? `：${code}` : ''}${message ? ` · ${message}` : ''}`
+    }
+    return '工具策略允许调用'
+  }
   if (log.phase === 'tool_call') {
     const toolId = readString(log.payload.resolved_tool_id) ?? readString(log.tool_id) ?? readString(log.payload.provider_tool_name) ?? '未知工具'
     return `模型正在使用工具：${getBuiltinToolLabel(toolId)}`
@@ -115,6 +154,11 @@ function summarizeStepLog(log: ExecutionStepLog): string {
   if (log.phase === 'observation') {
     const toolId = readString(log.tool_id) ?? readString(log.payload.tool_id) ?? '未知工具'
     return log.status === 'error' ? `${getBuiltinToolLabel(toolId)} 执行失败` : `${getBuiltinToolLabel(toolId)} 已返回结果`
+  }
+  if (log.phase === 'final_answer_policy_gate') {
+    const accepted = log.payload.accepted === true
+    const code = readString(log.payload.violation_code)
+    return accepted ? '最终答复通过策略检查' : `最终答复被策略修正${code ? `：${code}` : ''}`
   }
   const finalAnswer = typeof log.payload.final_answer === 'string' ? log.payload.final_answer.trim() : ''
   return finalAnswer.length > 0 ? `生成最终答复（${Math.min(finalAnswer.length, 120)} 字符）` : '生成最终答复'
@@ -150,6 +194,103 @@ function renderKnowledgeHits(log: ExecutionStepLog) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function renderIntentClassificationPayload(log: ExecutionStepLog) {
+  const rules = Array.isArray(log.payload.matched_rules) ? log.payload.matched_rules : []
+  const domains = Array.isArray(log.payload.candidate_tool_domains) ? log.payload.candidate_tool_domains : []
+  const knowledgeDomains = Array.isArray(log.payload.required_knowledge_domains) ? log.payload.required_knowledge_domains : []
+  return (
+    <div className="grid gap-2 text-xs text-text-sub sm:grid-cols-2">
+      <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+        <span className="text-text-muted">意图：</span>
+        {readString(log.payload.intent_type) ?? '未知'}
+      </div>
+      <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+        <span className="text-text-muted">子类型：</span>
+        {readString(log.payload.query_subtype) ?? '未知'}
+      </div>
+      <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+        <span className="text-text-muted">需要引用：</span>
+        {log.payload.requires_citation === true ? '是' : '否'}
+      </div>
+      <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+        <span className="text-text-muted">允许直答：</span>
+        {log.payload.allow_direct_answer === true ? '是' : '否'}
+      </div>
+      <div className="rounded-token-sm border border-border bg-surface px-2 py-1 sm:col-span-2">
+        <span className="text-text-muted">命中规则：</span>
+        {rules.length > 0 ? rules.join('、') : '无'}
+      </div>
+      {(domains.length > 0 || knowledgeDomains.length > 0) ? (
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1 sm:col-span-2">
+          <span className="text-text-muted">域：</span>
+          {[...knowledgeDomains, ...domains].join('、')}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function renderPrePolicyPayload(log: ExecutionStepLog) {
+  const allowed = Array.isArray(log.payload.allowed_tool_ids_for_turn) ? log.payload.allowed_tool_ids_for_turn : []
+  const blocked = Array.isArray(log.payload.blocked_tool_ids) ? log.payload.blocked_tool_ids : []
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-2 text-xs text-text-sub sm:grid-cols-2">
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">检索模式：</span>
+          {readString(log.payload.retrieval_mode) ?? 'none'}
+        </div>
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">必须检索：</span>
+          {log.payload.retrieval_required === true ? '是' : '否'}
+        </div>
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">要求引用：</span>
+          {log.payload.requires_citation === true ? '是' : '否'}
+        </div>
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">需要确认：</span>
+          {log.payload.requires_user_confirmation === true ? '是' : '否'}
+        </div>
+      </div>
+      <div className="rounded-token-sm border border-border bg-bg-soft p-2 text-[11px] text-text-sub">
+        允许工具：{allowed.length > 0 ? allowed.map((item) => getBuiltinToolLabel(String(item))).join('、') : '无'}
+      </div>
+      {blocked.length > 0 ? (
+        <pre className="overflow-auto whitespace-pre-wrap rounded-token-sm border border-border bg-bg-soft p-2 text-[11px] text-text-sub">
+          {stringifyValue(blocked)}
+        </pre>
+      ) : null}
+    </div>
+  )
+}
+
+function renderGatePayload(log: ExecutionStepLog) {
+  const safeFallback = readString(log.payload.safe_fallback)
+  const code = readString(log.payload.reason_code) ?? readString(log.payload.violation_code)
+  const message = readString(log.payload.reason_message)
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-2 text-xs text-text-sub sm:grid-cols-2">
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">决策：</span>
+          {readString(log.payload.decision) ?? (log.payload.accepted === true ? 'accepted' : log.status === 'error' ? 'blocked' : 'allowed')}
+        </div>
+        <div className="rounded-token-sm border border-border bg-surface px-2 py-1">
+          <span className="text-text-muted">代码：</span>
+          {code ?? '无'}
+        </div>
+      </div>
+      {message ? <p className="text-xs text-text-sub">{message}</p> : null}
+      {safeFallback ? (
+        <pre className="overflow-auto whitespace-pre-wrap rounded-token-sm border border-border bg-bg-soft p-2 text-[11px] text-text-sub">
+          {safeFallback}
+        </pre>
+      ) : null}
     </div>
   )
 }
@@ -200,6 +341,15 @@ function renderObservationPayload(log: ExecutionStepLog) {
 }
 
 function renderStepLogPayload(log: ExecutionStepLog) {
+  if (log.phase === 'intent_classification') {
+    return renderIntentClassificationPayload(log)
+  }
+  if (log.phase === 'pre_policy_gate') {
+    return renderPrePolicyPayload(log)
+  }
+  if (log.phase === 'retrieval_policy_gate' || log.phase === 'tool_policy_gate' || log.phase === 'final_answer_policy_gate') {
+    return renderGatePayload(log)
+  }
   if (log.phase === 'knowledge_retrieval') {
     return renderKnowledgeHits(log)
   }
@@ -426,6 +576,17 @@ export function RunLogsTabPage() {
     [step_logs],
   )
   const knowledgeRetrievalCount = step_logs.filter((log) => log.phase === 'knowledge_retrieval').length
+  const intentLog = step_logs.find((log) => log.phase === 'intent_classification')
+  const prePolicyLog = step_logs.find((log) => log.phase === 'pre_policy_gate')
+  const policyBlockCount = step_logs.filter(
+    (log) =>
+      (log.phase === 'retrieval_policy_gate' || log.phase === 'tool_policy_gate' || log.phase === 'final_answer_policy_gate') &&
+      log.status === 'error',
+  ).length
+  const allowedToolCount = Array.isArray(prePolicyLog?.payload.allowed_tool_ids_for_turn)
+    ? prePolicyLog.payload.allowed_tool_ids_for_turn.length
+    : 0
+  const blockedToolCount = Array.isArray(prePolicyLog?.payload.blocked_tool_ids) ? prePolicyLog.payload.blocked_tool_ids.length : 0
   const currentPhase = phaseFromStatus(status, preview_phase)
   const progressLabel =
     status === 'RUNNING' || status === 'PENDING'
@@ -516,6 +677,11 @@ export function RunLogsTabPage() {
               <div className="space-y-1 text-text-sub">
                 <p>用户需求：{last_user_input ?? '暂无输入'}</p>
                 <p>构建阶段：{PHASE_LABEL[currentPhase]}</p>
+                <p>意图分类：{readString(intentLog?.payload.intent_type) ?? '未记录'}</p>
+                <p>检索模式：{readString(prePolicyLog?.payload.retrieval_mode) ?? '未记录'}</p>
+                <p>允许工具：{allowedToolCount} 个</p>
+                <p>策略拦截：{policyBlockCount} 次</p>
+                <p>被拦工具：{blockedToolCount} 个</p>
                 <p>任务进度：{progressLabel}</p>
                 <p>工具使用：{toolCallCount} 次</p>
                 <p>工具成功返回：{successfulToolCallCount} 次</p>

@@ -12,6 +12,7 @@ import { CodeBlockCard } from '../chat/CodeBlockCard'
 interface RichContentRendererProps {
   content: string
   compact?: boolean
+  showTextCopy?: boolean
 }
 
 type RichBlock =
@@ -133,7 +134,7 @@ function MarkdownLink({ href, children }: { href?: string; children: ReactNode }
   )
 }
 
-function MarkdownContent({ text, compact }: { text: string; compact: boolean }) {
+function MarkdownContent({ text, compact, showTextCopy }: { text: string; compact: boolean; showTextCopy: boolean }) {
   const addTerminalCommand = useWorkspaceTabsStore((state) => state.addTerminalCommand)
   const components: Components = {
     h1: ({ children }) => <h1 className={cn('mt-3 text-xl font-semibold leading-snug text-text-main first:mt-0', compact && 'text-base')}>{children}</h1>,
@@ -184,9 +185,11 @@ function MarkdownContent({ text, compact }: { text: string; compact: boolean }) 
 
   return (
     <div className="space-y-1">
-      <div className="flex justify-end">
-        <CopyActionButton text={text.trim()} label="复制正文" />
-      </div>
+      {showTextCopy ? (
+        <div className="flex justify-end">
+          <CopyActionButton text={text.trim()} label="复制正文" />
+        </div>
+      ) : null}
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text.trim()}
       </ReactMarkdown>
@@ -194,7 +197,7 @@ function MarkdownContent({ text, compact }: { text: string; compact: boolean }) 
   )
 }
 
-export function RichContentRenderer({ content, compact = false }: RichContentRendererProps) {
+export function RichContentRenderer({ content, compact = false, showTextCopy = true }: RichContentRendererProps) {
   const addTerminalCommand = useWorkspaceTabsStore((state) => state.addTerminalCommand)
   const blocks = splitBlocks(content)
 
@@ -226,7 +229,7 @@ export function RichContentRenderer({ content, compact = false }: RichContentRen
           )
         }
 
-        return <MarkdownContent key={`text-${index}`} text={block.text} compact={compact} />
+        return <MarkdownContent key={`text-${index}`} text={block.text} compact={compact} showTextCopy={showTextCopy} />
       })}
     </div>
   )

@@ -14,6 +14,7 @@ import { getBuiltinToolLabel } from '../tools/tools.catalog'
 const CONVERSATION_HISTORY_STORAGE_KEY = 'AGENTFORGE_CONVERSATION_HISTORY_V1'
 const MAX_CONVERSATION_SESSIONS = 12
 const SESSION_TITLE_MAX_LENGTH = 24
+const STOPPED_BY_USER_MESSAGE = '已停止：用户主动停止了当前模型行为。'
 
 interface PersistedConversationHistory {
   active_by_agent: Record<string, string | null>
@@ -318,6 +319,28 @@ function toolActivityContent(log: ExecutionStepLog): string {
   return `我正在调用工具：${toolLabel}。`
 }
 
+function policyActivityContent(log: ExecutionStepLog): string {
+  if (log.phase === 'retrieval_policy_gate') {
+    if (log.payload.must_return_without_model === true) {
+      return '知识库没有命中可直接支撑回答的证据，本轮将停止模型自由回答。'
+    }
+    return '知识库检索结果已通过策略校验。'
+  }
+  if (log.phase === 'tool_policy_gate') {
+    const decision = readString(log.payload.decision) ?? 'blocked'
+    const reason = readString(log.payload.reason_code)
+    if (decision === 'blocked' || log.status === 'error') {
+      return `工具调用已被策略拦截${reason ? `：${reason}` : ''}。`
+    }
+    return '工具调用已通过策略校验。'
+  }
+  if (log.phase === 'final_answer_policy_gate' && log.status === 'error') {
+    const reason = readString(log.payload.violation_code)
+    return `最终答复已被策略修正${reason ? `：${reason}` : ''}。`
+  }
+  return '策略校验已完成。'
+}
+
 function knowledgeBadgeFromSnapshot(data: ExecutionSnapshot): string | null {
   const retrievalLogs = data.step_logs.filter((log) => log.phase === 'knowledge_retrieval' && log.status === 'success')
   if (retrievalLogs.length === 0) {
@@ -335,11 +358,17 @@ function knowledgeBadgeFromSnapshot(data: ExecutionSnapshot): string | null {
 
 function activityMessagesFromSnapshot(data: ExecutionSnapshot): ConversationMessage[] {
   return data.step_logs
-    .filter((log) => log.phase === 'tool_call' || (log.phase === 'knowledge_retrieval' && hasKnowledgeHit(log)))
+    .filter(
+      (log) =>
+        log.phase === 'tool_call' ||
+        (log.phase === 'knowledge_retrieval' && hasKnowledgeHit(log)) ||
+        ((log.phase === 'retrieval_policy_gate' || log.phase === 'tool_policy_gate' || log.phase === 'final_answer_policy_gate') &&
+          log.status === 'error'),
+    )
     .map((log, index) => ({
       id: `activity:${data.execution_id}:${log.phase}:${log.step_index}:${log.tool_id ?? 'knowledge'}:${index}`,
       role: 'assistant',
-      content: log.phase === 'knowledge_retrieval' ? knowledgeActivityContent(log) : toolActivityContent(log),
+      content: log.phase === 'knowledge_retrieval' ? knowledgeActivityContent(log) : log.phase === 'tool_call' ? toolActivityContent(log) : policyActivityContent(log),
       execution_id: data.execution_id,
       status: data.status,
       source: 'activity',
@@ -433,6 +462,9 @@ export const useExecutionStore = create<ExecutionStoreState>((set, get) => ({
     if (currentId !== null && currentId !== data.execution_id) {
       return
     }
+    if (get().termination_reason === 'USER_STOPPED') {
+      return
+    }
 
     set((state) => {
       const runtime = normalizeIdlessState({
@@ -460,6 +492,43 @@ export const useExecutionStore = create<ExecutionStoreState>((set, get) => ({
             : syncConversationMessages(get().conversation_messages, data),
         conversation_messages_hidden: hideConversationMessages,
         conversation_cleared_execution_id: clearedExecutionId,
+      })
+      const nextSessions = updateActiveSessionList(state, runtime)
+      if (state.conversation_agent_id !== null) {
+        persistConversationSessions(state.conversation_agent_id, nextSessions, state.active_conversation_id)
+      }
+      return {
+        ...state,
+        ...runtime,
+        conversation_sessions: nextSessions,
+      }
+    })
+  },
+
+  markExecutionStoppedByUser: () => {
+    set((state) => {
+      const executionId = state.current_execution_id
+      const stoppedMessages = [
+        ...state.conversation_messages,
+        {
+          id: `assistant:stopped:${executionId ?? Date.now()}`,
+          role: 'assistant' as const,
+          content: STOPPED_BY_USER_MESSAGE,
+          execution_id: executionId,
+          status: 'TERMINATED' as const,
+          source: 'chat' as const,
+        },
+      ]
+      const runtime = normalizeIdlessState({
+        ...runtimeFromState(state),
+        is_execution_starting: false,
+        status: 'TERMINATED',
+        final_answer: STOPPED_BY_USER_MESSAGE,
+        error_message: null,
+        termination_reason: 'USER_STOPPED',
+        preview_phase: state.preview_phase === 'ready' || state.preview_phase === 'deployed' ? state.preview_phase : 'failed',
+        deployment_status: state.deployment_status === 'SUCCEEDED' ? state.deployment_status : 'FAILED',
+        conversation_messages: stoppedMessages,
       })
       const nextSessions = updateActiveSessionList(state, runtime)
       if (state.conversation_agent_id !== null) {

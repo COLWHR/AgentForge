@@ -44,6 +44,11 @@ export function useExecutionPolling(execution_id: string | null) {
       const latestExecutionStore = useExecutionStore.getState()
       const latestAgentStore = useAgentStore.getState()
 
+      if (latestExecutionStore.termination_reason === 'USER_STOPPED') {
+        stopPolling(true)
+        return
+      }
+
       if (latestExecutionStore.current_execution_id !== execution_id) {
         stopPolling()
         return

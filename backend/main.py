@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,10 +25,54 @@ from backend.core.tools import CalculateTool, EchoTool, PythonAddTool, PythonExe
 from backend.models.constants import ResponseCode
 from backend.models.schemas import BaseResponse
 from backend.services.marketplace_tool_adapter import marketplace_tool_adapter
+from backend.services.schema_migration_service import ensure_knowledge_governance_columns
 from plugin_marketplace import MarketplaceAPI
 from plugin_marketplace.api.routes import create_router as create_marketplace_router
 from plugin_marketplace.db.database import init_db as init_pm_db
 import plugin_marketplace.db.models  # noqa: F401 - registers marketplace tables
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing database tables...")
+    async with core_db.engine.begin() as conn:
+        await conn.run_sync(core_db.Base.metadata.create_all)
+    await ensure_knowledge_governance_columns(core_db.engine)
+    await init_pm_db(core_db.engine)
+    await ensure_knowledge_governance_columns(core_db.engine)
+    logger.info("Database tables initialized.")
+
+    existing_registry = getattr(app.state, "tool_registry", None)
+    if existing_registry is None:
+        logger.info("Registering tools...")
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+        registry.register(PythonAddTool())
+        registry.register(PythonExecutorTool())
+        registry.register(CalculateTool())
+        registry.register(WebSearchTool())
+        registry.lock()
+        app.state.tool_registry = registry
+        logger.info("Tool registry locked.")
+    else:
+        logger.info("Tool registry already initialized, skipping re-registration.")
+
+    logger.info("Initializing plugin marketplace...")
+    pm_api = MarketplaceAPI(
+        database_url=settings.DB_URL,
+        session_factory=core_db.AsyncSessionLocal,
+    )
+    await pm_api.initialize()
+    app.state.pm_api = pm_api
+    marketplace_tool_adapter._marketplace_api = pm_api
+    logger.info("Plugin marketplace initialized.")
+
+    try:
+        yield
+    finally:
+        pm_api = getattr(app.state, "pm_api", None)
+        if pm_api is not None:
+            await pm_api.close()
 
 
 def create_app() -> FastAPI:
@@ -34,6 +80,7 @@ def create_app() -> FastAPI:
         title=settings.APP_NAME,
         description="AgentForge Backend Engine",
         version="1.0",
+        lifespan=lifespan,
     )
 
     setup_logging()
@@ -52,45 +99,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    async def on_startup() -> None:
-        logger.info("Initializing database tables...")
-        async with core_db.engine.begin() as conn:
-            await conn.run_sync(core_db.Base.metadata.create_all)
-        await init_pm_db(core_db.engine)
-        logger.info("Database tables initialized.")
-
-        existing_registry = getattr(app.state, "tool_registry", None)
-        if existing_registry is None:
-            logger.info("Registering tools...")
-            registry = ToolRegistry()
-            registry.register(EchoTool())
-            registry.register(PythonAddTool())
-            registry.register(PythonExecutorTool())
-            registry.register(CalculateTool())
-            registry.register(WebSearchTool())
-            registry.lock()
-            app.state.tool_registry = registry
-            logger.info("Tool registry locked.")
-        else:
-            logger.info("Tool registry already initialized, skipping re-registration.")
-
-        logger.info("Initializing plugin marketplace...")
-        pm_api = MarketplaceAPI(
-            database_url=settings.DB_URL,
-            session_factory=core_db.AsyncSessionLocal,
-        )
-        await pm_api.initialize()
-        app.state.pm_api = pm_api
-        marketplace_tool_adapter._marketplace_api = pm_api
-        logger.info("Plugin marketplace initialized.")
-
-    @app.on_event("shutdown")
-    async def on_shutdown() -> None:
-        pm_api = getattr(app.state, "pm_api", None)
-        if pm_api is not None:
-            await pm_api.close()
 
     @app.exception_handler(AgentForgeBaseException)
     async def agent_forge_exception_handler(request: Request, exc: AgentForgeBaseException):

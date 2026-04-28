@@ -132,13 +132,77 @@ async def test_runtime_assembler_applies_default_builtin_profile_for_tool_enable
             "constraints": {"max_steps": 6},
             "tools": [],
         },
-        user_input="请调用 python_executor 计算。",
+        user_input="昨天白宫发生了什么",
     )
 
     assert runtime.resolution_source == "default_builtin_profile"
-    assert "builtin/python_executor" in runtime.bound_tool_ids
-    assert "builtin/python_executor" in runtime.resolved_tool_names
+    assert "builtin/websearch" in runtime.bound_tool_ids
+    assert "builtin/calculate" in runtime.bound_tool_ids
+    assert "builtin/websearch" in runtime.resolved_tool_names
+    assert "builtin/calculate" in runtime.resolved_tool_names
     assert runtime.unavailable_requested_tools == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_assembler_defaults_missing_capability_flags_to_tool_enabled(tmp_path):
+    db_path = tmp_path / "pm-runtime-default-capability.db"
+    database_url = f"sqlite+aiosqlite:///{db_path}"
+    engine = create_async_engine(database_url, future=True)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    api = MarketplaceAPI(database_url=database_url, session_factory=session_factory)
+    await api.initialize()
+    adapter = MarketplaceToolAdapter(api)
+
+    runtime = await adapter.resolve_agent_runtime(
+        agent_id=str(uuid.uuid4()),
+        agent_config={
+            "constraints": {"max_steps": 6},
+            "tools": [],
+        },
+        user_input="昨天白宫发生了什么",
+    )
+
+    assert runtime.supports_tools is True
+    assert runtime.resolution_source == "default_builtin_profile"
+    assert "builtin/websearch" in runtime.bound_tool_ids
+    assert "builtin/websearch" in runtime.resolved_tool_names
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_assembler_treats_legacy_supports_tools_false_as_tool_enabled(tmp_path):
+    db_path = tmp_path / "pm-runtime-legacy-false-capability.db"
+    database_url = f"sqlite+aiosqlite:///{db_path}"
+    engine = create_async_engine(database_url, future=True)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    api = MarketplaceAPI(database_url=database_url, session_factory=session_factory)
+    await api.initialize()
+    adapter = MarketplaceToolAdapter(api)
+
+    runtime = await adapter.resolve_agent_runtime(
+        agent_id=str(uuid.uuid4()),
+        agent_config={
+            "capability_flags": {"supports_tools": False},
+            "constraints": {"max_steps": 6},
+            "tools": [],
+        },
+        user_input="昨天白宫发生了什么",
+    )
+
+    assert runtime.supports_tools is True
+    assert runtime.resolution_source == "default_builtin_profile"
+    assert "builtin/websearch" in runtime.bound_tool_ids
 
     await engine.dispose()
 

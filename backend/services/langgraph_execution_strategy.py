@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -20,12 +19,16 @@ from backend.models.schemas import (
     ExecutionErrorModel,
     ExecutionResult,
     ExecutionStepLogContract,
+    FinalAnswerPolicyDecision,
     GatewayResponse,
     GatewayToolCall,
+    IntentClassificationResult,
     Message,
     ModelConfig,
     Observation,
+    PolicyGateDecision,
     ReactStep,
+    RetrievalPolicy,
     TokenUsage,
     ToolObservation,
     ToolObservationError,
@@ -34,6 +37,10 @@ from backend.services.agent_runtime_assembler import ResolvedAgentRuntime
 from backend.services.agent_service import agent_service
 from backend.services.context_budget_manager import context_budget_manager
 from backend.services.knowledge_service import knowledge_service
+from backend.services.policy_gate import policy_gate
+from backend.services.retrieval_policy_service import retrieval_policy_service
+from backend.services.tool_need_classifier import tool_need_classifier
+from backend.services.tool_scope_resolver import tool_scope_resolver
 
 
 class AgentExecutionState(TypedDict):
@@ -44,7 +51,17 @@ class AgentExecutionState(TypedDict):
     conversation_history: List[Message]
     messages: List[Message]
     available_tools: List[Dict[str, Any]]
+    all_available_tools: List[Dict[str, Any]]
+    tool_catalog_entries: List[Dict[str, Any]]
     tool_names: List[str]
+    bound_tool_ids: List[str]
+    confirmed_tool_actions: List[Dict[str, Any]]
+    policy_overrides: Optional[Dict[str, Any]]
+    classification: Optional[IntentClassificationResult]
+    retrieval_policy: Optional[RetrievalPolicy]
+    pre_policy: Optional[PolicyGateDecision]
+    knowledge_retrieval_result: Optional[Dict[str, Any]]
+    tool_call_counts: Dict[str, int]
     react_steps: List[Dict[str, Any]]
     execution_trace: List[ReactStep]
     final_answer: Optional[str]
@@ -85,10 +102,11 @@ class LangGraphExecutionStrategy:
     )
     FIXED_RUNTIME_PROMPT = (
         "Agent Runtime Rules:\n"
-        "1. Use tool calls only when needed.\n"
-        "2. Tool calls must use strict JSON arguments.\n"
-        "3. If no tool call is required, provide final answer directly.\n"
-        "4. If the user explicitly requires a named tool and that tool is available, you must call it before answering.\n"
+        "1. Decide whether external tools are needed from the conversation and available tool schemas.\n"
+        "2. When a tool is needed, emit only a structured function/tool call with strict JSON arguments.\n"
+        "3. Never write textual pseudo tool calls such as [TOOL_CALL], <tool_code>, or tool JSON inside assistant content.\n"
+        "4. If no tool call is required, provide the final answer directly.\n"
+        "5. Do not expose private reasoning or <think> blocks in user-visible content.\n"
     )
     AGENT_PERSONA_PROMPT_HEADER = (
         "Agent Persona And Logic (System Prompt):\n"
@@ -128,6 +146,8 @@ class LangGraphExecutionStrategy:
         auth_context: AuthContext,
         request_id: str,
         conversation_history: Optional[List[ConversationHistoryMessage]] = None,
+        confirmed_tool_actions: Optional[List[Dict[str, Any]]] = None,
+        policy_overrides: Optional[Dict[str, Any]] = None,
         execution_id: Optional[uuid.UUID] = None,
         start_log: bool = True,
     ) -> ExecutionResult:
@@ -189,7 +209,17 @@ class LangGraphExecutionStrategy:
                 "conversation_history": self._normalize_conversation_history(conversation_history),
                 "messages": [],
                 "available_tools": runtime.tool_schemas,
+                "all_available_tools": runtime.tool_schemas,
+                "tool_catalog_entries": runtime.tool_catalog_entries,
                 "tool_names": [],
+                "bound_tool_ids": runtime.bound_tool_ids or runtime.resolved_tool_names,
+                "confirmed_tool_actions": confirmed_tool_actions or [],
+                "policy_overrides": policy_overrides,
+                "classification": None,
+                "retrieval_policy": None,
+                "pre_policy": None,
+                "knowledge_retrieval_result": None,
+                "tool_call_counts": {},
                 "react_steps": [],
                 "execution_trace": [],
                 "final_answer": None,
@@ -344,7 +374,15 @@ class LangGraphExecutionStrategy:
         graph.add_node("finalize_answer", self.finalize_answer)
         graph.add_node("terminate_by_limit", self.terminate_by_limit)
         graph.add_edge(START, "prepare_context")
-        graph.add_edge("prepare_context", "call_model")
+        graph.add_conditional_edges(
+            "prepare_context",
+            self.route_after_prepare_context,
+            {
+                "call_model": "call_model",
+                "finalize_answer": "finalize_answer",
+                "terminate_by_limit": "terminate_by_limit",
+            },
+        )
         graph.add_conditional_edges(
             "call_model",
             self.route_after_model,
@@ -359,19 +397,118 @@ class LangGraphExecutionStrategy:
         graph.add_edge("terminate_by_limit", END)
         return graph.compile()
 
+    def route_after_prepare_context(self, state: AgentExecutionState) -> str:
+        if state["status"] in {ExecutionStatus.FAILED.value, ExecutionStatus.TERMINATED.value}:
+            return "terminate_by_limit"
+        if state["current_assistant_content"].strip() or state["final_answer"]:
+            return "finalize_answer"
+        return "call_model"
+
     async def prepare_context(self, state: AgentExecutionState) -> Dict[str, Any]:
         agent_cfg = state["agent_config"]
-        tool_names = self._extract_tool_names(state["available_tools"])
+        all_tool_names = self._extract_tool_names(state["all_available_tools"])
         agent_persona_prompt = self._extract_agent_persona_prompt(agent_cfg)
-        knowledge_retrieval = await self._retrieve_knowledge_details(state)
-        knowledge_context = str(knowledge_retrieval.get("context", ""))
+        classification = tool_need_classifier.classify(
+            state["user_input"],
+            agent_config=agent_cfg,
+            tool_catalog_summary=all_tool_names,
+        )
+        retrieval_policy = retrieval_policy_service.resolve(classification)
+        pre_policy = policy_gate.evaluate_pre_policy(
+            classification=classification,
+            retrieval_policy=retrieval_policy,
+            bound_tool_ids=state["bound_tool_ids"],
+            tool_catalog_entries=state["tool_catalog_entries"],
+            confirmed_tool_actions=state["confirmed_tool_actions"],
+        )
+        allowed_tools = tool_scope_resolver.resolve(
+            classification=classification,
+            tool_schemas=state["all_available_tools"],
+            tool_catalog_entries=state["tool_catalog_entries"],
+            confirmed_tool_actions=state["confirmed_tool_actions"],
+        )
+        tool_names = self._extract_tool_names(allowed_tools)
         step_logs = list(state["step_logs"])
+        self._append_step_log(
+            step_logs=step_logs,
+            execution_id=state["execution_id"],
+            step_index=self._next_step_log_index(step_logs),
+            phase="intent_classification",
+            tool_id=None,
+            status="success",
+            payload={
+                **classification.model_dump(),
+                "input_preview": state["user_input"][:300],
+                "classifier_version": tool_need_classifier.VERSION,
+            },
+        )
+        self._append_step_log(
+            step_logs=step_logs,
+            execution_id=state["execution_id"],
+            step_index=self._next_step_log_index(step_logs),
+            phase="pre_policy_gate",
+            tool_id=None,
+            status="success",
+            payload={
+                **pre_policy.model_dump(),
+                "bound_tool_ids": state["bound_tool_ids"],
+                "tool_risk_metadata": self._tool_risk_metadata_for_log(state["tool_catalog_entries"]),
+                "policy_version": policy_gate.VERSION,
+            },
+        )
+
+        if pre_policy.requires_user_confirmation:
+            final_answer = "该操作需要用户确认后才能继续执行。请确认具体工具动作与参数后重试。"
+            self._append_step_log(
+                step_logs=step_logs,
+                execution_id=state["execution_id"],
+                step_index=self._next_step_log_index(step_logs),
+                phase="tool_policy_gate",
+                tool_id=None,
+                status="error",
+                payload={
+                    "gate_name": "PrePolicyGate",
+                    "decision": "blocked",
+                    "reason_code": ArcErrorCode.TOOL_CONFIRMATION_REQUIRED.value,
+                    "reason_message": "High-risk tool intent requires user confirmation.",
+                    "safe_fallback": final_answer,
+                    "policy_version": policy_gate.VERSION,
+                },
+            )
+            return {
+                "available_tools": [],
+                "tool_names": [],
+                "classification": classification,
+                "retrieval_policy": retrieval_policy,
+                "pre_policy": pre_policy,
+                "step_logs": step_logs,
+                "current_assistant_content": final_answer,
+                "final_answer": final_answer,
+                "status": ExecutionStatus.RUNNING.value,
+            }
+
+        knowledge_retrieval = await self._retrieve_knowledge_details(state, retrieval_policy=retrieval_policy)
+        knowledge_context = str(knowledge_retrieval.get("context", ""))
         system_prompt = (
             f"{self.FIXED_SAFETY_PROMPT}\n"
             f"{self.FIXED_RUNTIME_PROMPT}\n"
             f"{self.AGENT_PERSONA_PROMPT_HEADER}"
             f"{agent_persona_prompt}"
         )
+        if not allowed_tools:
+            system_prompt = (
+                f"{system_prompt}\n"
+                "Tool Availability:\n"
+                "No executable tool schemas are attached to this turn. Do not attempt or describe tool calls. "
+                "If the user asks for information that requires external tools, say the tool is unavailable in this run.\n"
+            )
+        if classification.intent_type == "KB_REQUIRED" and knowledge_retrieval.get("matched"):
+            system_prompt = (
+                f"{system_prompt}\n"
+                "Knowledge Grounding Rules:\n"
+                "The user request requires retrieved knowledge. Answer only from the retrieved evidence. "
+                "Include the provided source label in the final answer. If the evidence is insufficient, say so explicitly.\n"
+            )
         if knowledge_context:
             system_prompt = f"{system_prompt}{self.KNOWLEDGE_PROMPT_HEADER}{knowledge_context}"
         self._append_step_log(
@@ -383,13 +520,56 @@ class LangGraphExecutionStrategy:
             status="success",
             payload=knowledge_retrieval,
         )
+        retrieval_gate_payload = self._evaluate_retrieval_gate_payload(
+            classification=classification,
+            retrieval_policy=retrieval_policy,
+            retrieval_result=knowledge_retrieval,
+        )
+        self._append_step_log(
+            step_logs=step_logs,
+            execution_id=state["execution_id"],
+            step_index=self._next_step_log_index(step_logs),
+            phase="retrieval_policy_gate",
+            tool_id=None,
+            status="error" if retrieval_gate_payload.get("must_return_without_model") else "success",
+            payload=retrieval_gate_payload,
+        )
+        if retrieval_gate_payload.get("must_return_without_model"):
+            final_answer = str(retrieval_gate_payload["safe_fallback"])
+            return {
+                "available_tools": allowed_tools,
+                "messages": [
+                    Message(role="system", content=system_prompt),
+                    *state["conversation_history"],
+                    Message(role="user", content=state["user_input"]),
+                ],
+                "tool_names": tool_names,
+                "classification": classification,
+                "retrieval_policy": retrieval_policy,
+                "pre_policy": pre_policy,
+                "knowledge_retrieval_result": knowledge_retrieval,
+                "step_logs": step_logs,
+                "current_assistant_content": final_answer,
+                "final_answer": final_answer,
+                "error": ExecutionErrorModel(
+                    error_code=ArcErrorCode.KNOWLEDGE_REQUIRED_BUT_NOT_FOUND.value,
+                    error_source="knowledge_policy",
+                    error_message="Required knowledge was not found.",
+                ),
+                "status": ExecutionStatus.RUNNING.value,
+            }
         return {
+            "available_tools": allowed_tools,
             "messages": [
                 Message(role="system", content=system_prompt),
                 *state["conversation_history"],
                 Message(role="user", content=state["user_input"]),
             ],
             "tool_names": tool_names,
+            "classification": classification,
+            "retrieval_policy": retrieval_policy,
+            "pre_policy": pre_policy,
+            "knowledge_retrieval_result": knowledge_retrieval,
             "step_logs": step_logs,
             "status": ExecutionStatus.RUNNING.value,
         }
@@ -411,19 +591,8 @@ class LangGraphExecutionStrategy:
             max_tokens=runtime_cfg.get("max_tokens"),
         )
         call_tools = [] if state["force_final_answer"] else state["available_tools"]
-        forced_tool_name = (
-            self._select_forced_tool(state["user_input"], state["tool_names"])
-            if call_tools and state["tool_calls_used"] == 0 and not state["react_steps"]
-            else None
-        )
-        tool_choice = (
-            {
-                "type": "function",
-                "function": {"name": forced_tool_name},
-            }
-            if forced_tool_name
-            else None
-        )
+        forced_tool_name = None
+        tool_choice = None
         step_logs = list(state["step_logs"])
         model_step_index = self._next_step_log_index(step_logs)
         context_budget = self.context_budget_manager.fit(
@@ -460,6 +629,7 @@ class LangGraphExecutionStrategy:
                 streamed_content_parts.append(delta)
                 now = time.monotonic()
                 content = "".join(streamed_content_parts)
+                content, _events = policy_gate.sanitize_final_answer(content)
                 if now - last_stream_update_at < 0.2 and len(delta) < 24:
                     return
                 last_stream_update_at = now
@@ -478,9 +648,12 @@ class LangGraphExecutionStrategy:
                 on_content_delta=update_streaming_content,
             )
             if streamed_content_parts:
+                streamed_content, _events = policy_gate.sanitize_final_answer(
+                    model_resp.content or "".join(streamed_content_parts)
+                )
                 await self.execution_log_service.update_streaming_answer(
                     execution_id=state["execution_id"],
-                    content=model_resp.content or "".join(streamed_content_parts),
+                    content=streamed_content,
                 )
         except ModelGatewayException as exc:
             error_payload = (exc.data or {}).get("error", {})
@@ -600,21 +773,6 @@ class LangGraphExecutionStrategy:
             return updates
 
         if model_resp.finish_reason == "stop" and not tool_calls:
-            if forced_tool_name:
-                error = ExecutionErrorModel(
-                    error_code=ArcErrorCode.INVALID_TOOL_CALL.value,
-                    error_source="model_parser",
-                    error_message=f"Model did not call required tool: {forced_tool_name}",
-                )
-                updates.update(
-                    {
-                        "status": ExecutionStatus.FAILED.value,
-                        "termination_reason": TerminationReason.FAILED.value,
-                        "final_answer": f"执行失败：模型未按要求调用工具 {forced_tool_name}。",
-                        "error": error,
-                    }
-                )
-                return updates
             return updates
 
         if model_resp.finish_reason == "tool_calls" and tool_calls:
@@ -667,7 +825,6 @@ class LangGraphExecutionStrategy:
                 Message(
                     role="assistant",
                     content=state["current_assistant_content"] or "",
-                    reasoning_content=state["current_assistant_reasoning_content"],
                     tool_calls=state["current_tool_calls"],
                 )
             )
@@ -677,6 +834,7 @@ class LangGraphExecutionStrategy:
         step_logs = list(state["step_logs"])
         consecutive_tool_failures = state["consecutive_tool_failures"]
         tool_calls_used = state["tool_calls_used"]
+        tool_call_counts = dict(state["tool_call_counts"])
         force_final_answer = state["force_final_answer"]
         previous_loop_signature = state["previous_loop_signature"]
 
@@ -757,7 +915,85 @@ class LangGraphExecutionStrategy:
                 }
 
             step_index = self._next_step_log_index(step_logs)
+            tool_policy = policy_gate.evaluate_tool_call(
+                tool_id=tool_id,
+                arguments=arguments,
+                classification=state["classification"],
+                pre_policy=state["pre_policy"],
+                bound_tool_ids=state["bound_tool_ids"],
+                tool_catalog_entries=state["tool_catalog_entries"],
+                tool_call_counts=tool_call_counts,
+                max_tool_calls=state["max_tool_calls"],
+                total_tool_calls_used=tool_calls_used,
+                confirmed_tool_actions=state["confirmed_tool_actions"],
+            )
+            self._append_step_log(
+                step_logs=step_logs,
+                execution_id=state["execution_id"],
+                step_index=step_index,
+                phase="tool_policy_gate",
+                tool_id=tool_id,
+                status="success" if tool_policy.allowed else "error",
+                payload={
+                    "gate_name": "ToolPolicyGate",
+                    "decision": "allowed" if tool_policy.allowed else "blocked",
+                    "reason_code": tool_policy.reason_code,
+                    "reason_message": tool_policy.reason_message,
+                    "input_summary": {"provider_tool_name": provider_tool_name, "resolved_tool_id": tool_id},
+                    "arguments_hash": policy_gate.arguments_hash(arguments),
+                    "arguments_summary": self._summarize_tool_arguments(arguments),
+                    "safe_fallback": "Tool call was blocked by policy." if not tool_policy.allowed else None,
+                    "policy_version": policy_gate.VERSION,
+                },
+            )
+            if not tool_policy.allowed:
+                observation = ToolObservation(
+                    tool_id=tool_id,
+                    ok=False,
+                    content_type="error",
+                    content=None,
+                    error=ToolObservationError(
+                        code=tool_policy.reason_code or ArcErrorCode.TOOL_BLOCKED_BY_POLICY.value,
+                        message=tool_policy.reason_message or "Tool call was blocked by policy.",
+                    ),
+                )
+                messages.append(
+                    Message(
+                        role="tool",
+                        name=tool_id,
+                        tool_call_id=tool_call.id,
+                        content=json.dumps(
+                            {
+                                "ok": False,
+                                "error": observation.error.model_dump() if observation.error else None,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                )
+                consecutive_tool_failures += 1
+                force_final_answer = True
+                if tool_policy.terminal:
+                    return {
+                        "messages": messages,
+                        "react_steps": react_steps,
+                        "execution_trace": execution_trace,
+                        "step_logs": step_logs,
+                        "status": ExecutionStatus.FAILED.value,
+                        "termination_reason": TerminationReason.FAILED.value,
+                        "final_answer": f"执行失败：{observation.error.message if observation.error else '工具调用被策略拦截。'}",
+                        "error": ExecutionErrorModel(
+                            error_code=observation.error.code if observation.error else ArcErrorCode.TOOL_BLOCKED_BY_POLICY.value,
+                            error_source="tool_policy",
+                            error_message=observation.error.message if observation.error else "Tool call was blocked by policy.",
+                        ),
+                        "current_assistant_reasoning_content": None,
+                        "current_tool_calls": [],
+                    }
+                continue
+
             tool_calls_used += 1
+            tool_call_counts[tool_id] = tool_call_counts.get(tool_id, 0) + 1
             self._append_step_log(
                 step_logs=step_logs,
                 execution_id=state["execution_id"],
@@ -883,6 +1119,7 @@ class LangGraphExecutionStrategy:
             "execution_trace": execution_trace,
             "step_logs": step_logs,
             "tool_calls_used": tool_calls_used,
+            "tool_call_counts": tool_call_counts,
             "consecutive_tool_failures": consecutive_tool_failures,
             "force_final_answer": force_final_answer,
             "previous_loop_signature": previous_loop_signature,
@@ -891,7 +1128,20 @@ class LangGraphExecutionStrategy:
         }
 
     async def finalize_answer(self, state: AgentExecutionState) -> Dict[str, Any]:
-        final_answer = state["current_assistant_content"].strip()
+        final_answer = (state["current_assistant_content"] or state["final_answer"] or "").strip()
+        tool_call_history = [
+            step.get("action", {}).get("tool_id")
+            for step in state["react_steps"]
+            if isinstance(step.get("action"), dict) and step.get("action", {}).get("tool_id")
+        ]
+        final_policy: FinalAnswerPolicyDecision = policy_gate.evaluate_final_answer(
+            final_answer=final_answer,
+            classification=state["classification"],
+            retrieval_result=state["knowledge_retrieval_result"],
+            tool_call_history=tool_call_history,
+        )
+        if not final_policy.accepted and final_policy.safe_final_answer:
+            final_answer = final_policy.safe_final_answer
         execution_trace = list(state["execution_trace"])
         execution_trace.append(
             ReactStep(
@@ -908,6 +1158,18 @@ class LangGraphExecutionStrategy:
             step_logs=step_logs,
             execution_id=state["execution_id"],
             step_index=self._next_step_log_index(step_logs),
+            phase="final_answer_policy_gate",
+            tool_id=None,
+            status="success" if final_policy.accepted else "error",
+            payload={
+                **final_policy.model_dump(),
+                "policy_version": policy_gate.VERSION,
+            },
+        )
+        self._append_step_log(
+            step_logs=step_logs,
+            execution_id=state["execution_id"],
+            step_index=self._next_step_log_index(step_logs),
             phase="final_answer",
             tool_id=None,
             status="success",
@@ -915,8 +1177,8 @@ class LangGraphExecutionStrategy:
         )
         return {
             "final_answer": final_answer,
-            "status": ExecutionStatus.SUCCEEDED.value,
-            "termination_reason": TerminationReason.SUCCESS.value,
+            "status": ExecutionStatus.SUCCEEDED.value if final_policy.accepted or final_policy.safe_final_answer else ExecutionStatus.FAILED.value,
+            "termination_reason": TerminationReason.SUCCESS.value if final_policy.accepted or final_policy.safe_final_answer else TerminationReason.FAILED.value,
             "execution_trace": execution_trace,
             "step_logs": step_logs,
         }
@@ -1011,6 +1273,15 @@ class LangGraphExecutionStrategy:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     @staticmethod
+    def _summarize_tool_arguments(arguments: Dict[str, Any], *, max_chars: int = 600) -> str:
+        if not arguments:
+            return "{}"
+        encoded = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+        if len(encoded) <= max_chars:
+            return encoded
+        return f"{encoded[:max_chars].rstrip()}..."
+
+    @staticmethod
     def _extract_tool_names(tools: List[Dict[str, Any]]) -> List[str]:
         tool_names = [
             str(((tool.get("function") or {}).get("name", ""))).strip()
@@ -1018,6 +1289,72 @@ class LangGraphExecutionStrategy:
             if isinstance(tool, dict)
         ]
         return [name for name in tool_names if name]
+
+    @staticmethod
+    def _filter_tools_by_allowed_ids(tools: List[Dict[str, Any]], allowed_tool_ids: List[str]) -> List[Dict[str, Any]]:
+        allowed = set(allowed_tool_ids)
+        return [
+            tool
+            for tool in tools
+            if str(((tool.get("function") or {}).get("name", ""))).strip() in allowed
+        ]
+
+    @staticmethod
+    def _tool_risk_metadata_for_log(tool_catalog_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            {
+                "tool_id": entry.get("id"),
+                "risk_level": entry.get("risk_level"),
+                "side_effect": entry.get("side_effect"),
+                "requires_confirmation": entry.get("requires_confirmation"),
+                "allowed_intents": entry.get("allowed_intents"),
+                "domains": entry.get("domains"),
+                "max_calls_per_run": entry.get("max_calls_per_run"),
+            }
+            for entry in tool_catalog_entries
+        ]
+
+    @staticmethod
+    def _evaluate_retrieval_gate_payload(
+        *,
+        classification: IntentClassificationResult,
+        retrieval_policy: RetrievalPolicy,
+        retrieval_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        matched = bool(retrieval_result.get("matched"))
+        if retrieval_result.get("error") and retrieval_policy.required:
+            return {
+                "can_continue_to_model": False,
+                "must_return_without_model": True,
+                "reason_code": ArcErrorCode.KNOWLEDGE_RETRIEVAL_FAILED.value,
+                "safe_fallback": "知识库检索失败，无法回答必须依赖知识库的问题。请稍后重试。",
+                "policy_version": policy_gate.VERSION,
+            }
+        if classification.intent_type == "KB_REQUIRED" and not matched:
+            safe_fallback = (
+                f"当前知识库未检索到与「{retrieval_result.get('query') or ''}」直接匹配的内容。\n"
+                "已检索范围：当前 Agent 知识库。\n"
+                "请上传或补充对应校规/制度文档后重试。"
+            )
+            retrieval_result["knowledge_miss_answer"] = safe_fallback
+            return {
+                "can_continue_to_model": False,
+                "must_return_without_model": True,
+                "knowledge_miss": {
+                    "reason_code": ArcErrorCode.KNOWLEDGE_REQUIRED_BUT_NOT_FOUND.value,
+                    "query": retrieval_result.get("query"),
+                    "near_misses": retrieval_result.get("near_misses", False),
+                },
+                "safe_fallback": safe_fallback,
+                "policy_version": policy_gate.VERSION,
+            }
+        return {
+            "can_continue_to_model": True,
+            "must_return_without_model": False,
+            "injected_evidence": retrieval_result.get("knowledge_hits", []),
+            "retrieval_optional_miss": classification.intent_type == "KB_OPTIONAL" and not matched,
+            "policy_version": policy_gate.VERSION,
+        }
 
     @staticmethod
     def _extract_agent_persona_prompt(agent_config: Dict[str, Any]) -> str:
@@ -1049,13 +1386,22 @@ class LangGraphExecutionStrategy:
             remaining_chars -= len(injected_content)
             was_truncated = len(injected_content) < len(original_content)
             suffix = "\n[内容已截断]" if was_truncated else ""
-            blocks.append(f"[{index}] {item.title}\n{injected_content}{suffix}")
+            citation_label = getattr(item, "citation_label", "") or f"{item.title} / 片段 {index}"
+            blocks.append(f"[{index}] {citation_label}\n{injected_content}{suffix}")
             metadata.append(
                 {
                     "document_id": str(item.document_id),
                     "chunk_id": str(item.chunk_id),
                     "title": item.title,
                     "score": item.score,
+                    "match_type": getattr(item, "match_type", "keyword"),
+                    "document_type": getattr(item, "document_type", "other"),
+                    "article_no": getattr(item, "article_no", None),
+                    "article_label": getattr(item, "article_label", None),
+                    "section_path": getattr(item, "section_path", []),
+                    "page_no": getattr(item, "page_no", None),
+                    "citation_label": citation_label,
+                    "is_direct_evidence": getattr(item, "is_direct_evidence", True),
                     "content_preview": injected_content[:400],
                     "original_content_chars": len(original_content),
                     "injected_content_chars": len(injected_content),
@@ -1066,7 +1412,28 @@ class LangGraphExecutionStrategy:
         return metadata, "\n\n".join(blocks), total_original_chars, LangGraphExecutionStrategy.MAX_KNOWLEDGE_CONTEXT_CHARS - remaining_chars
 
     @staticmethod
-    async def _retrieve_knowledge_details(state: AgentExecutionState) -> Dict[str, Any]:
+    async def _retrieve_knowledge_details(
+        state: AgentExecutionState,
+        *,
+        retrieval_policy: RetrievalPolicy | None = None,
+    ) -> Dict[str, Any]:
+        retrieval_policy = retrieval_policy or RetrievalPolicy(retrieval_mode="optional_hybrid", limit=4, min_score=2.0)
+        if retrieval_policy.retrieval_mode == "none":
+            return {
+                "query": state["user_input"],
+                "retrieval_mode": "none",
+                "matched": False,
+                "matched_count": 0,
+                "near_misses": False,
+                "knowledge_hits": [],
+                "context": "",
+                "original_context_chars": 0,
+                "injected_context_chars": 0,
+                "context_truncated": False,
+                "latency_ms": 0,
+                "error": None,
+            }
+        started = time.monotonic()
         try:
             async with AsyncSessionLocal() as db:
                 results = await knowledge_service.search(
@@ -1074,18 +1441,26 @@ class LangGraphExecutionStrategy:
                     agent_id=uuid.UUID(state["agent_id"]),
                     team_id=uuid.UUID(state["auth_context"].team_id),
                     query=state["user_input"],
-                    limit=4,
+                    limit=retrieval_policy.limit,
+                    retrieval_mode=retrieval_policy.retrieval_mode,
                 )
                 knowledge_hits, context, original_chars, injected_chars = LangGraphExecutionStrategy._truncate_knowledge_context_items(results)
+                matched = len(results) > 0
+                if retrieval_policy.retrieval_mode == "exact_clause":
+                    matched = any(hit.get("match_type") == "exact_clause" and hit.get("is_direct_evidence") for hit in knowledge_hits)
                 return {
                     "query": state["user_input"],
-                    "matched": len(results) > 0,
+                    "retrieval_mode": retrieval_policy.retrieval_mode,
+                    "matched": matched,
                     "matched_count": len(results),
+                    "near_misses": bool(results) and not matched,
                     "knowledge_hits": knowledge_hits,
                     "context": context,
                     "original_context_chars": original_chars,
                     "injected_context_chars": injected_chars,
                     "context_truncated": injected_chars < original_chars,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
+                    "error": None,
                 }
         except Exception as exc:
             logger.bind(
@@ -1096,10 +1471,13 @@ class LangGraphExecutionStrategy:
             ).warning("Knowledge retrieval failed")
             return {
                 "query": state["user_input"],
+                "retrieval_mode": retrieval_policy.retrieval_mode,
                 "matched": False,
                 "matched_count": 0,
+                "near_misses": False,
                 "knowledge_hits": [],
                 "context": "",
+                "latency_ms": int((time.monotonic() - started) * 1000),
                 "error": str(exc),
             }
 
@@ -1124,21 +1502,6 @@ class LangGraphExecutionStrategy:
             normalized.append(Message(role=item.role, content=content))
 
         return normalized[-cls.MAX_CONVERSATION_HISTORY_MESSAGES :]
-
-    @staticmethod
-    def _select_forced_tool(user_input: str, tool_names: List[str]) -> Optional[str]:
-        normalized_input = user_input.lower()
-        matches: List[str] = []
-        for tool_name in tool_names:
-            bare_name = tool_name.split("/", 1)[-1]
-            if LangGraphExecutionStrategy._contains_explicit_tool_reference(normalized_input, tool_name.lower()) or LangGraphExecutionStrategy._contains_explicit_tool_reference(normalized_input, bare_name.lower()):
-                matches.append(tool_name)
-        return matches[0] if len(matches) == 1 else None
-
-    @staticmethod
-    def _contains_explicit_tool_reference(user_input: str, tool_token: str) -> bool:
-        pattern = rf"(?<![a-z0-9_]){re.escape(tool_token)}(?![a-z0-9_])"
-        return bool(re.search(pattern, user_input))
 
     @staticmethod
     def _next_step_log_index(step_logs: List[ExecutionStepLogContract]) -> int:

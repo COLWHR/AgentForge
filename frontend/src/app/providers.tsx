@@ -2,17 +2,30 @@ import type { PropsWithChildren } from 'react'
 import { useEffect } from 'react'
 import { Toaster } from 'sonner'
 
+import { useAuthStore } from '../features/auth/auth.store'
 import { getRecentAgentIdFromStorage, useAgentStore } from '../features/agent/agent.store'
 import { executionAdapter } from '../features/execution/execution.adapter'
 import { useExecutionStore } from '../features/execution/execution.store'
 import { useExecutionPolling } from '../features/execution/useExecutionPolling'
+import { applyTheme, useThemeStore } from '../features/theme/theme.store'
 
 export function AppProviders({ children }: PropsWithChildren) {
   const currentExecutionId = useExecutionStore((state) => state.current_execution_id)
+  const authStatus = useAuthStore((state) => state.status)
+  const authUserId = useAuthStore((state) => state.user?.user_id ?? null)
+  const initializeAuth = useAuthStore((state) => state.initialize)
+  const theme = useThemeStore((state) => state.theme)
   useExecutionPolling(currentExecutionId)
 
   useEffect(() => {
     executionAdapter.initializeExecutionRuntime()
+    void initializeAuth()
+  }, [initializeAuth])
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || authUserId === null) {
+      return
+    }
 
     async function initializeAgentRuntimeContext() {
       const store = useAgentStore.getState()
@@ -34,7 +47,11 @@ export function AppProviders({ children }: PropsWithChildren) {
     }
 
     void initializeAgentRuntimeContext()
-  }, [])
+  }, [authStatus, authUserId])
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   return (
     <>

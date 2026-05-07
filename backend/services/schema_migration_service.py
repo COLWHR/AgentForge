@@ -43,12 +43,28 @@ PM_TOOL_RISK_COLUMNS = {
     "audit_payload_level": {"sqlite": "VARCHAR DEFAULT 'summary'", "postgresql": "VARCHAR DEFAULT 'summary'"},
 }
 
+EMAIL_VERIFICATION_COLUMNS = {
+    "send_status": {"sqlite": "VARCHAR DEFAULT 'PENDING'", "postgresql": "VARCHAR DEFAULT 'PENDING'"},
+    "send_attempts": {"sqlite": "INTEGER DEFAULT 0", "postgresql": "INTEGER DEFAULT 0"},
+    "verification_attempts": {"sqlite": "INTEGER DEFAULT 0", "postgresql": "INTEGER DEFAULT 0"},
+    "sent_at": {"sqlite": "DATETIME", "postgresql": "TIMESTAMP WITH TIME ZONE"},
+    "last_send_error": {"sqlite": "TEXT", "postgresql": "TEXT"},
+    "invalidated_at": {"sqlite": "DATETIME", "postgresql": "TIMESTAMP WITH TIME ZONE"},
+}
+
 
 async def ensure_knowledge_governance_columns(engine: AsyncEngine) -> None:
     """Add nullable Phase 3 knowledge governance columns for DBs without Alembic."""
 
     async with engine.begin() as conn:
         await conn.run_sync(_ensure_columns_sync)
+
+
+async def ensure_auth_columns(engine: AsyncEngine) -> None:
+    """Add auth verification columns for DBs without Alembic."""
+
+    async with engine.begin() as conn:
+        await conn.run_sync(_ensure_auth_columns_sync)
 
 
 def _ensure_columns_sync(sync_conn) -> None:
@@ -61,6 +77,12 @@ def _ensure_columns_sync(sync_conn) -> None:
         _add_missing_columns(sync_conn, inspector, "knowledge_chunks", KNOWLEDGE_CHUNK_COLUMNS, dialect_name)
     if "pm_tools" in table_names:
         _add_missing_columns(sync_conn, inspector, "pm_tools", PM_TOOL_RISK_COLUMNS, dialect_name)
+def _ensure_auth_columns_sync(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    dialect_name = sync_conn.dialect.name
+    table_names = set(inspector.get_table_names())
+    if "email_verification_codes" in table_names:
+        _add_missing_columns(sync_conn, inspector, "email_verification_codes", EMAIL_VERIFICATION_COLUMNS, dialect_name)
 
 
 def _add_missing_columns(sync_conn, inspector, table_name: str, columns: dict[str, dict[str, str]], dialect_name: str) -> None:

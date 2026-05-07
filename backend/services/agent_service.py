@@ -103,10 +103,7 @@ class AgentService:
         agents = rows.scalars().all()
         normalized: List[AgentRead] = []
         for agent in agents:
-            mapped = AgentService._to_agent_read(agent)
-            if mapped.archived:
-                continue
-            normalized.append(mapped)
+            normalized.append(AgentService._to_agent_read(agent))
         return normalized
 
     @staticmethod

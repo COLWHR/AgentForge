@@ -5,6 +5,7 @@ python-dotenv
 pyyaml
 loguru
 sqlalchemy
+boto3
 asyncpg
 aiosqlite
 greenlet

@@ -32,6 +32,109 @@ class AuthContext(BaseModel):
     request_id: str
     role: str = "member"
     is_dev: bool = False
+    search_id: Optional[int] = None
+    email: Optional[str] = None
+    email_verified: bool = False
+
+
+class AuthUserProfile(BaseModel):
+    user_id: str
+    search_id: int
+    email: str
+    email_verified: bool
+    display_name: str
+    avatar_url: Optional[str] = None
+    status: str
+    team_id: Optional[str] = None
+    role: Optional[str] = None
+
+
+class PublicUserProfile(BaseModel):
+    search_id: int
+    display_name: str
+    avatar_url: Optional[str] = None
+    status: str
+
+
+class RegisterEmailRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if "@" not in email or email.startswith("@") or email.endswith("@"):
+            raise ValueError("invalid email")
+        return email
+
+
+class RegisterStartRequest(RegisterEmailRequest):
+    delivery_mode: Optional[Literal["local"]] = None
+
+
+class RegisterVerifyRequest(RegisterEmailRequest):
+    code: str
+
+
+class RegisterVerifyResponse(BaseModel):
+    email: str
+    registration_token: str
+    expires_in_seconds: int
+
+
+class RegisterCompleteRequest(RegisterEmailRequest):
+    registration_token: str
+    password: str
+    confirm_password: str
+    display_name: str
+    avatar_url: Optional[str] = None
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        display_name = value.strip()
+        if not display_name:
+            raise ValueError("display_name cannot be empty")
+        if len(display_name) > 80:
+            raise ValueError("display_name is too long")
+        return display_name
+
+
+class RegisterStartResponse(BaseModel):
+    email: str
+    expires_in_seconds: int
+    retry_after_seconds: int
+    dev_code: Optional[str] = None
+
+
+class AvatarUploadResponse(BaseModel):
+    avatar_url: str
+
+
+class LoginRequest(RegisterEmailRequest):
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class PasswordForgotRequest(RegisterEmailRequest):
+    pass
+
+
+class PasswordResetRequest(RegisterEmailRequest):
+    code: str
+    new_password: str
+
+
+class TokenPairResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in_seconds: int
+    user: AuthUserProfile
+
 
 class TokenUsage(BaseModel):
     prompt_tokens: int = 0

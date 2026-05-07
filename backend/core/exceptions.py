@@ -32,6 +32,12 @@ class ValidationException(AgentForgeBaseException):
     def __init__(self, message: str):
         super().__init__(message, code=ResponseCode.VALIDATION_ERROR, status_code=422)
 
+
+class FlowException(AgentForgeBaseException):
+    def __init__(self, message: str, code: ResponseCode = ResponseCode.INTERNAL_ERROR, data: Optional[Any] = None, status_code: int = 400):
+        super().__init__(message, code=code, status_code=status_code, data=data)
+
+
 class QuotaException(AgentForgeBaseException):
     def __init__(self, message: str, code: ResponseCode = ResponseCode.QUOTA_EXCEEDED):
         super().__init__(message, code=code, status_code=429)

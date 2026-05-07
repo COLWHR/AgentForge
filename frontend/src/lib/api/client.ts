@@ -27,10 +27,6 @@ function getDefaultBaseUrl(): string {
 }
 
 function isDevAuthBypassEnabled(): boolean {
-  if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
-    return true
-  }
-
   const explicit = import.meta.env.VITE_AUTH_DEV_BYPASS
   if (typeof explicit === 'boolean') {
     return explicit

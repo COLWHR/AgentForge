@@ -176,6 +176,8 @@ export DB_URL="sqlite+aiosqlite:///$PROJECT_ROOT/agentforge_preview.db"
 export REDIS_URL="redis://localhost:6379/1"
 export OPENROUTER_BASE_URL="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 export OPENROUTER_MODEL="${OPENROUTER_MODEL:-openai/gpt-4o-mini}"
+export EMAIL_DELIVERY_MODE="${EMAIL_DELIVERY_MODE:-smtp}"
+export AUTH_DEV_BYPASS_ENABLED="${AUTH_DEV_BYPASS_ENABLED:-false}"
 
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   OPENROUTER_API_KEY="${MODEL_API_KEY:-}"

@@ -3,12 +3,17 @@ import jwt
 from unittest.mock import AsyncMock, patch
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from fastapi.testclient import TestClient
 
 from backend.api.dependencies import resolve_auth_context, verify_team_permission
+from backend.main import app
 from backend.core.config import settings
 from backend.core.exceptions import AuthException, PermissionException
 from backend.models.constants import ResponseCode
 from backend.models.schemas import AuthContext
+
+
+client = TestClient(app, raise_server_exceptions=False)
 
 
 def _request_with_request_id(request_id: str = "req-test"):
@@ -80,3 +85,53 @@ async def test_verify_team_permission():
         with pytest.raises(PermissionException) as exc:
             await verify_team_permission("team2", auth=auth)
     assert exc.value.code == ResponseCode.TEAM_FORBIDDEN
+
+
+def test_upload_avatar_returns_public_url(monkeypatch, tmp_path):
+    monkeypatch.setattr("backend.services.avatar_storage_service.LOCAL_AVATAR_UPLOAD_DIR", tmp_path / "avatars")
+    monkeypatch.setattr(settings, "AVATAR_STORAGE_PROVIDER", "local")
+    monkeypatch.setattr(settings, "AVATAR_PUBLIC_BASE_URL", "")
+
+    response = client.post(
+        "/auth/avatar/upload",
+        files={"file": ("avatar.png", b"avatar-bytes", "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    avatar_url = payload["data"]["avatar_url"]
+    assert avatar_url.startswith("http://testserver/uploads/avatars/")
+    stored = list((tmp_path / "avatars").iterdir())
+    assert len(stored) == 1
+    assert stored[0].read_bytes() == b"avatar-bytes"
+
+
+def test_upload_avatar_returns_object_storage_url(monkeypatch):
+    monkeypatch.setattr(settings, "AVATAR_STORAGE_PROVIDER", "s3")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_ENDPOINT", "https://s3.example.test")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_BUCKET", "avatars-bucket")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_ACCESS_KEY", "access")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_SECRET_KEY", "secret")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_PUBLIC_BASE_URL", "https://cdn.example.test")
+    monkeypatch.setattr(settings, "OBJECT_STORAGE_PUBLIC_READ", True)
+
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def put_object(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("backend.services.avatar_storage_service.avatar_storage_service._create_s3_client", lambda: FakeClient())
+
+    response = client.post(
+        "/auth/avatar/upload",
+        files={"file": ("avatar.png", b"avatar-bytes", "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    avatar_url = payload["data"]["avatar_url"]
+    assert avatar_url.startswith("https://cdn.example.test/avatars/")
+    assert captured["Bucket"] == "avatars-bucket"
+    assert captured["Body"] == b"avatar-bytes"
+    assert captured["ContentType"] == "image/png"

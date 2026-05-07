@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import DateTime, func, JSON, Uuid
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.core.database import Base
 
@@ -160,3 +160,77 @@ class TeamQuota(Base):
 
     def __repr__(self) -> str:
         return f"<TeamQuota(team_id={self.team_id}, token_limit={self.token_limit})>"
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    search_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<User(user_id={self.user_id}, email={self.email}, status={self.status})>"
+
+
+class UserCredential(Base):
+    __tablename__ = "user_credentials"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    password_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<UserCredential(user_id={self.user_id})>"
+
+
+class SearchIdAllocation(Base):
+    __tablename__ = "search_id_allocations"
+
+    search_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<SearchIdAllocation(search_id={self.search_id}, user_id={self.user_id})>"
+
+
+class EmailVerificationCode(Base):
+    __tablename__ = "email_verification_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    send_status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING", index=True)
+    send_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    verification_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_send_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    invalidated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    def __repr__(self) -> str:
+        return f"<EmailVerificationCode(email={self.email}, purpose={self.purpose}, status={self.send_status})>"
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken(user_id={self.user_id}, revoked={self.revoked_at is not None})>"

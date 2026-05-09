@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom'
 
-import { AppShell } from '../../layouts/AppShell'
+import { AppShell } from '../../app/routes/lazyRoutes'
 import { useAuthStore } from './auth.store'
 
 function LoadingShell() {

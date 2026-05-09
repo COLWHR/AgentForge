@@ -89,11 +89,11 @@ def test_startup_materializes_builtin_tools_and_execution_uses_python_executor(m
         )
         assert execute_response.status_code == 200
         execution_data = execute_response.json()["data"]
-        assert execution_data["steps_used"] > 0
 
         replay_response = client.get(f"/executions/{execution_data['execution_id']}", headers=_auth_headers())
         assert replay_response.status_code == 200
         replay = replay_response.json()["data"]
+        assert replay["steps_used"] > 0
         assert replay["react_steps"][0]["action"]["tool_id"] == "builtin/python_executor"
 
 

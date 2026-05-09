@@ -1,5 +1,6 @@
 import { AlertTriangle, Archive, Clock, FolderKanban, MessageSquare, MoreHorizontal, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { AGENT_CONFIG_DRAFT_EVENT, ensureCreateAgentConfigDraft, readAgentConfigDraft } from '../../../features/agent/agentConfigDraft'
 import { useAgentStore } from '../../../features/agent/agent.store'
@@ -61,6 +62,8 @@ function mapArcErrorCode(code: string | null): string {
 }
 
 export function WorkspaceRail() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const leftPanelWidth = useUiShellStore((state) => state.leftPanelWidth)
   const openBuilderTab = useBuilderTabsStore((state) => state.openTab)
   const agentList = useAgentStore((state) => state.agent_list)
@@ -83,6 +86,12 @@ export function WorkspaceRail() {
     () => (damagedAgentId === null ? null : agentList.find((agent) => agent.id === damagedAgentId) ?? null),
     [agentList, damagedAgentId],
   )
+
+  const goToAgentsWorkspace = () => {
+    if (location.pathname !== '/agents') {
+      navigate('/agents')
+    }
+  }
 
   const orderedAgents = useMemo(() => {
     const pinnedSet = new Set(pinnedAgentIds)
@@ -268,6 +277,7 @@ export function WorkspaceRail() {
             title="新建智能体"
             onClick={() => {
               openAgentConfigTab('create')
+              goToAgentsWorkspace()
             }}
           >
             <Plus size={16} />
@@ -306,7 +316,10 @@ export function WorkspaceRail() {
                   title={createDraftName.length > 0 ? createDraftName : '未保存的新智能体'}
                   subtitle="继续填写配置后保存"
                   icon={<Plus size={16} />}
-                  onClick={() => openAgentConfigTab('create')}
+                  onClick={() => {
+                    openAgentConfigTab('create')
+                    goToAgentsWorkspace()
+                  }}
                 />
               )}
               {isAgentListLoading && <SessionListItem id="loading-agents" title="正在加载智能体..." icon={<Clock size={16} />} />}
@@ -329,6 +342,7 @@ export function WorkspaceRail() {
                           return
                         }
                         void selectAgent(agent.id)
+                        goToAgentsWorkspace()
                       }}
                     >
                       <div className="mt-0.5 shrink-0 text-text-muted"><MessageSquare size={16} /></div>

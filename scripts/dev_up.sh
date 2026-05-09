@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$PROJECT_ROOT/.tmp/dev_up"
+TMP_DIR="${TMP_DIR:-/tmp/agentforge-dev_up}"
 BACKEND_PID_FILE="$TMP_DIR/backend.pid"
 FRONTEND_PID_FILE="$TMP_DIR/frontend.pid"
 REDIS_PID_FILE="$TMP_DIR/redis.pid"
@@ -111,41 +111,63 @@ kill_by_pattern "uvicorn backend.main:app" "legacy-uvicorn"
 kill_by_pattern "$PROJECT_ROOT/frontend.*vite" "legacy-vite"
 kill_by_pattern "$PROJECT_ROOT/frontend.*npm run dev" "legacy-npm-dev"
 
-if redis-cli ping >/dev/null 2>&1; then
+REDIS_SERVER_BIN="${REDIS_SERVER_BIN:-redis-server}"
+REDIS_CLI_BIN="${REDIS_CLI_BIN:-redis-cli}"
+if ! command -v "$REDIS_SERVER_BIN" >/dev/null 2>&1 && command -v redis-server.exe >/dev/null 2>&1; then
+  REDIS_SERVER_BIN="redis-server.exe"
+fi
+if ! command -v "$REDIS_CLI_BIN" >/dev/null 2>&1 && command -v redis-cli.exe >/dev/null 2>&1; then
+  REDIS_CLI_BIN="redis-cli.exe"
+fi
+
+if "$REDIS_CLI_BIN" ping >/dev/null 2>&1; then
   :
 else
   kill_by_pattern "redis-server.*6379" "legacy-redis"
 fi
 log "startup cleanup done"
 
-if [ ! -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+VENV_ACTIVATE=""
+if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+  VENV_ACTIVATE="$PROJECT_ROOT/.venv/bin/activate"
+elif [ -f "$PROJECT_ROOT/.venv/Scripts/activate" ]; then
+  VENV_ACTIVATE="$PROJECT_ROOT/.venv/Scripts/activate"
+fi
+
+if [ -z "$VENV_ACTIVATE" ]; then
   echo "[dev_up] missing .venv, run: bash scripts/reset_env.sh"
   exit 1
 fi
 
 cd "$PROJECT_ROOT"
 # shellcheck disable=SC1091
-source .venv/bin/activate
-python -V
+source "$VENV_ACTIVATE"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 && command -v python.exe >/dev/null 2>&1; then
+  PYTHON_BIN="python.exe"
+fi
+WIN_PROJECT_ROOT="${WIN_PROJECT_ROOT:-$(cygpath -m "$PROJECT_ROOT" 2>/dev/null || printf '%s' "$PROJECT_ROOT")}"
 
-python - <<'PY'
+"$PYTHON_BIN" -V
+
+"$PYTHON_BIN" - <<'PY'
 import sys
 assert sys.version_info >= (3, 10), "Python version must be >= 3.10"
 print("Python version OK")
 PY
 
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install -r requirements.txt
 
-if redis-cli ping >/dev/null 2>&1; then
+if "$REDIS_CLI_BIN" ping >/dev/null 2>&1; then
   log "redis already running"
 else
   log "starting redis-server"
-  redis-server --daemonize yes
+  "$REDIS_SERVER_BIN" --daemonize yes
   sleep 1
 fi
 
-if ! redis-cli ping >/dev/null 2>&1; then
+if ! "$REDIS_CLI_BIN" ping >/dev/null 2>&1; then
   echo "[dev_up] redis start failed"
   exit 1
 fi
@@ -172,7 +194,7 @@ if [ -f "$PROJECT_ROOT/.env.test" ]; then
   set +a
 fi
 export ENV="dev"
-export DB_URL="sqlite+aiosqlite:///$PROJECT_ROOT/agentforge_preview.db"
+export DB_URL="sqlite+aiosqlite:///$WIN_PROJECT_ROOT/agentforge_preview.db"
 export REDIS_URL="redis://localhost:6379/1"
 export OPENROUTER_BASE_URL="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 export OPENROUTER_MODEL="${OPENROUTER_MODEL:-openai/gpt-4o-mini}"
@@ -193,14 +215,14 @@ export MODEL_API_KEY="${MODEL_API_KEY:-$OPENROUTER_API_KEY}"
 export MODEL_BASE_URL="${MODEL_BASE_URL:-$OPENROUTER_BASE_URL}"
 
 log "starting backend"
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload > "$BACKEND_PIPE" 2>&1 &
+"$PYTHON_BIN" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload > "$BACKEND_PIPE" 2>&1 &
 BACKEND_PID="$!"
 echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
 
 backend_ready=0
 i=0
 while [ "$i" -lt 30 ]; do
-  if lsof -ti tcp:8000 -sTCP:LISTEN >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 http://127.0.0.1:8000/health >/dev/null 2>&1; then
     backend_ready=1
     break
   fi

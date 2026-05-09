@@ -631,11 +631,24 @@ export function ProfilePage() {
 
   if (!user) return <Navigate to="/login" replace />
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate('/agents', { replace: true })
+  }
+
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col gap-5 overflow-auto p-8">
-      <div>
-        <h1 className="text-xl font-semibold text-text-main">个人资料</h1>
-        <p className="mt-1 text-sm text-text-muted">公开身份和账号状态</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-text-main">个人资料</h1>
+          <p className="mt-1 text-sm text-text-muted">公开身份和账号状态</p>
+        </div>
+        <Button type="button" variant="ghost" leftIcon={<ArrowLeft size={16} />} onClick={handleBack}>
+          返回
+        </Button>
       </div>
 
       <section className="rounded-token-lg border border-border bg-surface p-5 shadow-token-sm">

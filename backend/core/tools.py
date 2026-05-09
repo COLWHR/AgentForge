@@ -219,31 +219,87 @@ class WebSearchTool(BaseTool):
         if not query:
             raise ValueError("query is required")
         limit = min(max(int(input_data.get("limit") or 5), 1), 5)
-        return {"query": query, "results": self._search_duckduckgo(query, limit)}
+        return {"query": query, "results": self._search_with_fallback(query, limit)}
+
+    @classmethod
+    def _search_with_fallback(cls, query: str, limit: int) -> list[dict[str, str]]:
+        last_error: Exception | None = None
+        for search_fn in (cls._search_360, cls._search_sogou):
+            try:
+                results = search_fn(query, limit)
+                if results:
+                    return results
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise ValueError(f"web search failed: {last_error}") from last_error
+        return []
 
     @staticmethod
-    def _search_duckduckgo(query: str, limit: int) -> list[dict[str, str]]:
+    def _fetch_html(url: str, timeout: int = 6) -> str:
         request = Request(
-            f"https://duckduckgo.com/html/?q={quote_plus(query)}",
+            url,
             headers={"User-Agent": "Mozilla/5.0 (compatible; AgentForgeTool/1.0)"},
         )
-        with urlopen(request, timeout=8) as response:
-            raw_html = response.read().decode("utf-8", errors="ignore")
-        pattern = re.compile(
-            r'<a[^>]+class="result__a"[^>]+href="(?P<link>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?'
-            r'<a[^>]+class="result__snippet"[^>]*>(?P<snippet>.*?)</a>',
-            re.DOTALL,
-        )
+        with urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="ignore")
+
+    @classmethod
+    def _search_360(cls, query: str, limit: int) -> list[dict[str, str]]:
+        raw_html = cls._fetch_html(f"https://www.so.com/s?q={quote_plus(query)}")
+        blocks = re.findall(r'<li[^>]+class="res-list"[^>]*>(.*?)</li>', raw_html, re.DOTALL)
         results: list[dict[str, str]] = []
-        for match in pattern.finditer(raw_html):
-            title = WebSearchTool._clean_html(match.group("title"))
-            link = html.unescape(match.group("link"))
-            snippet = WebSearchTool._clean_html(match.group("snippet"))
+        for block in blocks:
+            title_match = re.search(r'<h3[^>]+class="res-title[^"]*"[^>]*>.*?<a[^>]*>(?P<title>.*?)</a>', block, re.DOTALL)
+            snippet_match = re.search(r'<p[^>]+class="res-desc"[^>]*>(?P<snippet>.*?)</p>', block, re.DOTALL)
+            url_match = re.search(r'data-mdurl="(?P<url>[^"]+)"', block)
+            if url_match is None:
+                url_match = re.search(r'<a[^>]+href="(?P<url>[^"]+)"', block)
+            if title_match is None or url_match is None:
+                continue
+            title = cls._clean_html(title_match.group("title"))
+            link = html.unescape(url_match.group("url"))
+            snippet = cls._clean_html(snippet_match.group("snippet")) if snippet_match else ""
             if title and link:
                 results.append({"title": title, "url": link, "snippet": snippet})
             if len(results) >= limit:
                 break
         return results
+
+    @classmethod
+    def _search_sogou(cls, query: str, limit: int) -> list[dict[str, str]]:
+        raw_html = cls._fetch_html(f"https://www.sogou.com/web?query={quote_plus(query)}")
+        results: list[dict[str, str]] = []
+        pattern = re.compile(
+            r'<h3[^>]+class="vr-title[^"]*"[^>]*>.*?<a[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?</h3>',
+            re.DOTALL,
+        )
+        for match in pattern.finditer(raw_html):
+            link = html.unescape(match.group("url"))
+            title = cls._clean_html(match.group("title"))
+            if not link.startswith("http") and "/link?url=" in link:
+                link = cls._decode_sogou_redirect(link)
+            snippet_window = raw_html[match.end() : match.end() + 1200]
+            snippet_match = re.search(
+                r'<div[^>]+class="(?:fz-mid[^"]*|cacheresult_summary[^"]*)"[^>]*>(?P<snippet>.*?)</div>',
+                snippet_window,
+                re.DOTALL,
+            )
+            snippet = cls._clean_html(snippet_match.group("snippet")) if snippet_match else ""
+            if title and link:
+                results.append({"title": title, "url": link, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results
+
+    @staticmethod
+    def _decode_sogou_redirect(url: str) -> str:
+        from urllib.parse import parse_qs, urlparse, unquote
+
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        target = query.get("url", [""])[0]
+        return unquote(target) if target else url
 
     @staticmethod
     def _clean_html(value: str) -> str:

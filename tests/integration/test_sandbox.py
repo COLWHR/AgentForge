@@ -46,10 +46,11 @@ def test_sandbox_security_import():
     assert res["status"] == "error"
     assert "not allowed" in res["error"].lower()
 
-def test_sandbox_security_builtins():
+def test_sandbox_security_builtins(tmp_path):
     print("\n[Test] Sandbox Security: Forbidden Builtin (open)")
     sandbox = PythonSandbox()
-    code = "open('test.txt', 'w')"
+    temp_file = tmp_path / "sandbox_test.txt"
+    code = f"open({str(temp_file)!r}, 'w')"
     res = sandbox.execute(code, {})
     print(f"Result: {res}")
     assert res["status"] == "error"

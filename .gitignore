@@ -70,6 +70,8 @@ pnpm-debug.log*
 *.pid
 *.seed
 *.pid.lock
+.tmp/
+dump.rdb
 
 # ========================
 # 测试与临时文件

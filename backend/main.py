@@ -1,20 +1,25 @@
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.api.middleware import RequestLoggingMiddleware
 from backend.api.routes.agents import router as agents_router
+from backend.api.routes.auth import router as auth_router
 from backend.api.routes.executions import router as executions_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.sandbox import router as sandbox_router
+from backend.api.routes.users import router as users_router
 from backend.api.routes.teams import router as teams_router
 from backend.api.routes.tools import router as tools_router
-from backend.core.config import settings
+from backend.core.config import PROJECT_ROOT, settings
 from backend.core import database as core_db
 from backend.core.exceptions import AgentForgeBaseException
 from backend.core.logging import logger, setup_logging
@@ -23,17 +28,67 @@ from backend.core.tools import CalculateTool, EchoTool, PythonAddTool, PythonExe
 from backend.models.constants import ResponseCode
 from backend.models.schemas import BaseResponse
 from backend.services.marketplace_tool_adapter import marketplace_tool_adapter
+from backend.services.schema_migration_service import ensure_auth_columns, ensure_knowledge_governance_columns
+import backend.models.orm  # noqa: F401 - registers ORM tables
 from plugin_marketplace import MarketplaceAPI
 from plugin_marketplace.api.routes import create_router as create_marketplace_router
 from plugin_marketplace.db.database import init_db as init_pm_db
 import plugin_marketplace.db.models  # noqa: F401 - registers marketplace tables
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing database tables...")
+    async with core_db.engine.begin() as conn:
+        await conn.run_sync(core_db.Base.metadata.create_all)
+    await ensure_auth_columns(core_db.engine)
+    await ensure_knowledge_governance_columns(core_db.engine)
+    await init_pm_db(core_db.engine)
+    await ensure_knowledge_governance_columns(core_db.engine)
+    logger.info("Database tables initialized.")
+
+    existing_registry = getattr(app.state, "tool_registry", None)
+    if existing_registry is None:
+        logger.info("Registering tools...")
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+        registry.register(PythonAddTool())
+        registry.register(PythonExecutorTool())
+        registry.register(CalculateTool())
+        registry.register(WebSearchTool())
+        registry.lock()
+        app.state.tool_registry = registry
+        logger.info("Tool registry locked.")
+    else:
+        logger.info("Tool registry already initialized, skipping re-registration.")
+
+    logger.info("Initializing plugin marketplace...")
+    pm_api = MarketplaceAPI(
+        database_url=settings.DB_URL,
+        session_factory=core_db.AsyncSessionLocal,
+    )
+    await pm_api.initialize()
+    app.state.pm_api = pm_api
+    marketplace_tool_adapter._marketplace_api = pm_api
+    logger.info("Plugin marketplace initialized.")
+
+    try:
+        yield
+    finally:
+        pm_api = getattr(app.state, "pm_api", None)
+        if pm_api is not None:
+            await pm_api.close()
+
+
 def create_app() -> FastAPI:
+    uploads_dir = PROJECT_ROOT / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
     app = FastAPI(
         title=settings.APP_NAME,
         description="AgentForge Backend Engine",
         version="1.0",
+        lifespan=lifespan,
     )
 
     setup_logging()
@@ -52,45 +107,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    async def on_startup() -> None:
-        logger.info("Initializing database tables...")
-        async with core_db.engine.begin() as conn:
-            await conn.run_sync(core_db.Base.metadata.create_all)
-        await init_pm_db(core_db.engine)
-        logger.info("Database tables initialized.")
-
-        existing_registry = getattr(app.state, "tool_registry", None)
-        if existing_registry is None:
-            logger.info("Registering tools...")
-            registry = ToolRegistry()
-            registry.register(EchoTool())
-            registry.register(PythonAddTool())
-            registry.register(PythonExecutorTool())
-            registry.register(CalculateTool())
-            registry.register(WebSearchTool())
-            registry.lock()
-            app.state.tool_registry = registry
-            logger.info("Tool registry locked.")
-        else:
-            logger.info("Tool registry already initialized, skipping re-registration.")
-
-        logger.info("Initializing plugin marketplace...")
-        pm_api = MarketplaceAPI(
-            database_url=settings.DB_URL,
-            session_factory=core_db.AsyncSessionLocal,
-        )
-        await pm_api.initialize()
-        app.state.pm_api = pm_api
-        marketplace_tool_adapter._marketplace_api = pm_api
-        logger.info("Plugin marketplace initialized.")
-
-    @app.on_event("shutdown")
-    async def on_shutdown() -> None:
-        pm_api = getattr(app.state, "pm_api", None)
-        if pm_api is not None:
-            await pm_api.close()
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
     @app.exception_handler(AgentForgeBaseException)
     async def agent_forge_exception_handler(request: Request, exc: AgentForgeBaseException):
@@ -161,6 +178,8 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router, prefix="", tags=["Monitoring"])
     app.include_router(agents_router, prefix="", tags=["Agents"])
+    app.include_router(auth_router, prefix="", tags=["Auth"])
+    app.include_router(users_router, prefix="", tags=["Users"])
     app.include_router(sandbox_router, prefix="", tags=["Sandbox"])
     app.include_router(tools_router, prefix="", tags=["Tools"])
     app.include_router(knowledge_router, prefix="", tags=["Knowledge"])

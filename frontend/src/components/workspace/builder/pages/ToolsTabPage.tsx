@@ -1,10 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, CircleAlert, Save, Store } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Info, Save, Store } from 'lucide-react'
 
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { BUILTIN_TOOL_OPTIONS, normalizeBuiltinToolId } from '../../../../features/tools/tools.catalog'
 import { notify } from '../../../../features/notifications/notify'
 import { Button } from '../../../ui/Button'
+
+const BUILTIN_TOOL_ID_SET = new Set(BUILTIN_TOOL_OPTIONS.map((tool) => tool.id))
+
+function normalizeToolIds(toolIds: string[]): string[] {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+
+  for (const toolId of toolIds) {
+    const candidate = normalizeBuiltinToolId(toolId).trim()
+    if (!candidate || seen.has(candidate)) {
+      continue
+    }
+    seen.add(candidate)
+    normalized.push(candidate)
+  }
+
+  return normalized
+}
+
+function areToolSelectionsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  const rightSet = new Set(right)
+  return left.every((toolId) => rightSet.has(toolId))
+}
 
 export function ToolsTabPage() {
   const currentAgentId = useAgentStore((state) => state.current_agent_id)
@@ -12,14 +39,19 @@ export function ToolsTabPage() {
   const updateAgent = useAgentStore((state) => state.updateAgent)
   const [isSaving, setIsSaving] = useState(false)
 
-  const enabledToolIds = useMemo(
-    () => new Set((currentAgentDetail?.tools ?? []).map(normalizeBuiltinToolId)),
-    [currentAgentDetail?.tools],
-  )
+  const baselineToolIds = useMemo(() => normalizeToolIds(currentAgentDetail?.tools ?? []), [currentAgentDetail?.tools])
   const [draftToolIds, setDraftToolIds] = useState<string[] | null>(null)
-  const selectedToolIds = draftToolIds ?? BUILTIN_TOOL_OPTIONS.filter((tool) => enabledToolIds.has(tool.id)).map((tool) => tool.id)
-  const selectedSet = new Set(selectedToolIds)
-  const isDirty = draftToolIds !== null && selectedToolIds.join('|') !== BUILTIN_TOOL_OPTIONS.filter((tool) => enabledToolIds.has(tool.id)).map((tool) => tool.id).join('|')
+  const selectedToolIds = draftToolIds ?? baselineToolIds
+  const visibleBuiltinToolIds = useMemo(
+    () => BUILTIN_TOOL_OPTIONS.filter((tool) => selectedToolIds.includes(tool.id)).map((tool) => tool.id),
+    [selectedToolIds],
+  )
+  const hiddenToolIds = useMemo(
+    () => selectedToolIds.filter((toolId) => !BUILTIN_TOOL_ID_SET.has(toolId)),
+    [selectedToolIds],
+  )
+  const selectedSet = useMemo(() => new Set(selectedToolIds), [selectedToolIds])
+  const isDirty = draftToolIds !== null && !areToolSelectionsEqual(selectedToolIds, baselineToolIds)
   const isAgentReady = currentAgentId !== null && currentAgentDetail !== null && currentAgentDetail.is_available
 
   useEffect(() => {
@@ -28,7 +60,7 @@ export function ToolsTabPage() {
 
   const toggleTool = (toolId: string) => {
     setDraftToolIds((currentDraft) => {
-      const current = currentDraft ?? selectedToolIds
+      const current = normalizeToolIds(currentDraft ?? baselineToolIds)
       return current.includes(toolId) ? current.filter((id) => id !== toolId) : [...current, toolId]
     })
   }
@@ -42,7 +74,7 @@ export function ToolsTabPage() {
     setIsSaving(true)
     try {
       await updateAgent(currentAgentId, {
-        capability_flags: { supports_tools: selectedToolIds.length > 0 },
+        capability_flags: { supports_tools: true },
         tools: selectedToolIds,
       })
       setDraftToolIds(null)
@@ -80,7 +112,7 @@ export function ToolsTabPage() {
                 void saveTools()
               }}
             >
-              {isSaving ? '保存中' : '保存工具配置'}
+              {isSaving ? '保存中...' : '保存工具配置'}
             </Button>
           </div>
         </div>
@@ -88,6 +120,20 @@ export function ToolsTabPage() {
         {!isAgentReady ? (
           <div className="rounded-token-md border border-border bg-bg-soft/50 px-4 py-3 text-sm text-text-sub">
             请先选择一个可用智能体，再配置工具。
+          </div>
+        ) : null}
+
+        {hiddenToolIds.length > 0 ? (
+          <div className="rounded-token-md border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning">
+            <div className="flex items-start gap-2">
+              <Info size={16} className="mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="font-medium">当前智能体还绑定了未在此页展示的工具</p>
+                <p className="mt-1 text-xs leading-relaxed text-text-sub">
+                  这些工具会在保存时保留，不会被这个页面自动清掉：{hiddenToolIds.join('、')}
+                </p>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -116,12 +162,27 @@ export function ToolsTabPage() {
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-relaxed text-text-sub">{tool.description}</p>
-                  <p className="mt-3 text-xs text-text-muted">{checked ? '已启用，模型可按需调用。' : '未启用，模型不会看到该工具。'}</p>
+                  <p className="mt-3 text-xs text-text-muted">
+                    {checked ? '已启用，模型本轮可以调用。' : '未启用，模型本轮看不到这个工具。'}
+                  </p>
                 </div>
               </label>
             )
           })}
         </div>
+
+        {visibleBuiltinToolIds.length > 0 ? (
+          <div className="rounded-token-md border border-border bg-bg-soft/30 px-4 py-3 text-sm text-text-sub">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-text-main">当前可见工具：</span>
+              {visibleBuiltinToolIds.map((toolId) => (
+                <span key={toolId} className="rounded-token-md bg-surface px-2 py-0.5 font-mono text-[11px] text-text-muted">
+                  {toolId}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex items-center gap-2 text-xs">
           {isDirty ? (

@@ -58,12 +58,25 @@ async def test_marketplace_seeds_manifests_and_executes_builtin_tool(tmp_path):
     assert "builtin/python_executor" in tool_ids
     assert "builtin/websearch" in tool_ids
     assert "builtin/calculate" in tool_ids
+    python_exec = next(tool for tool in tools if tool["id"] == "builtin/python_exec")
+    websearch = next(tool for tool in tools if tool["id"] == "builtin/websearch")
+    assert python_exec["risk_level"] == "high"
+    assert python_exec["requires_confirmation"] is True
+    assert python_exec["side_effect"] == "write"
+    assert websearch["risk_level"] == "medium"
+    assert websearch["side_effect"] == "external_read"
+    assert "web_search" in websearch["domains"]
 
     schemas = await api.get_tool_schemas()
     schema_names = {tool["function"]["name"] for tool in schemas}
     assert "builtin/python_executor" in schema_names
     assert "builtin/websearch" in schema_names
     assert "builtin/calculate" in schema_names
+
+    catalog_entries = await api.get_tool_catalog_entries(["builtin/python_exec", "builtin/websearch"])
+    catalog_by_id = {entry["id"]: entry for entry in catalog_entries}
+    assert catalog_by_id["builtin/python_exec"]["requires_confirmation"] is True
+    assert catalog_by_id["builtin/websearch"]["domains"] == ["web_search"]
 
     user_id = str(uuid.uuid4())
     await api.install_extension("builtin", user_id, {})

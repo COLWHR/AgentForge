@@ -7,11 +7,16 @@ TMP_DIR="$PROJECT_ROOT/.tmp/e2e_fullstack"
 BACKEND_PID_FILE="$TMP_DIR/backend.pid"
 FRONTEND_PID_FILE="$TMP_DIR/frontend.pid"
 REDIS_PID_FILE="$TMP_DIR/redis.pid"
+SMTP_PID_FILE="$TMP_DIR/smtp.pid"
 BACKEND_LOG_FILE="$TMP_DIR/backend.log"
 FRONTEND_LOG_FILE="$TMP_DIR/frontend.log"
+SMTP_LOG_FILE="$TMP_DIR/smtp.log"
+SMTP_INBOX_FILE="$TMP_DIR/smtp_inbox.json"
 
+SMTP_PID=""
 BACKEND_PID=""
 FRONTEND_PID=""
+SMTP_TAIL_PID=""
 BACKEND_TAIL_PID=""
 FRONTEND_TAIL_PID=""
 _CLEANED_UP=0
@@ -99,10 +104,13 @@ cleanup_all() {
   fi
   _CLEANED_UP=1
   set +e
+  kill_pid "$SMTP_PID" "smtp-capture"
   kill_pid "$FRONTEND_PID" "frontend"
   kill_pid "$BACKEND_PID" "backend"
+  kill_pid "$SMTP_TAIL_PID" "smtp-tail"
   kill_pid "$FRONTEND_TAIL_PID" "frontend-tail"
   kill_pid "$BACKEND_TAIL_PID" "backend-tail"
+  cleanup_pid_file "$SMTP_PID_FILE" "smtp-pidfile"
   cleanup_pid_file "$FRONTEND_PID_FILE" "frontend-pidfile"
   cleanup_pid_file "$BACKEND_PID_FILE" "backend-pidfile"
 }
@@ -115,10 +123,13 @@ log "startup cleanup begin"
 cleanup_pid_file "$TMP_DIR/backend.pid" "backend-pidfile"
 cleanup_pid_file "$TMP_DIR/frontend.pid" "frontend-pidfile"
 cleanup_pid_file "$TMP_DIR/redis.pid" "redis-pidfile"
+cleanup_pid_file "$TMP_DIR/smtp.pid" "smtp-pidfile"
 cleanup_pid_file "$PROJECT_ROOT/.tmp/dev_up/backend.pid" "legacy-backend-pidfile"
 cleanup_pid_file "$PROJECT_ROOT/.tmp/dev_up/frontend.pid" "legacy-frontend-pidfile"
 cleanup_pid_file "$PROJECT_ROOT/.tmp/dev_up/redis.pid" "legacy-redis-pidfile"
 
+kill_port_processes 3025
+kill_port_processes 8025
 kill_port_processes 8000
 kill_port_processes 5173
 kill_port_processes 5174
@@ -152,7 +163,7 @@ if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import importlib
 import sys
 
-required_modules = ("langgraph", "multipart", "pypdf", "docx")
+required_modules = ("langgraph", "multipart", "pypdf", "docx", "boto3")
 missing = []
 for module_name in required_modules:
     try:
@@ -195,9 +206,11 @@ if pgrep -f "redis-server.*6379" >/dev/null 2>&1; then
   pgrep -f "redis-server.*6379" | head -n 1 > "$REDIS_PID_FILE"
 fi
 
-rm -f "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE" 2>/dev/null || true
-touch "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE"
+rm -f "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE" "$SMTP_LOG_FILE" "$SMTP_INBOX_FILE" 2>/dev/null || true
+touch "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE" "$SMTP_LOG_FILE"
 
+tail -n 0 -F "$SMTP_LOG_FILE" | sed -u 's/^/[smtp] /' &
+SMTP_TAIL_PID="$!"
 tail -n 0 -F "$BACKEND_LOG_FILE" | sed -u 's/^/[backend] /' &
 BACKEND_TAIL_PID="$!"
 tail -n 0 -F "$FRONTEND_LOG_FILE" | sed -u 's/^/[frontend] /' &
@@ -205,12 +218,28 @@ FRONTEND_TAIL_PID="$!"
 
 export PYTHONPATH="$PROJECT_ROOT"
 export ENV="${ENV:-dev}"
-export AUTH_DEV_BYPASS_ENABLED="${AUTH_DEV_BYPASS_ENABLED:-true}"
+export AUTH_DEV_BYPASS_ENABLED="${AUTH_DEV_BYPASS_ENABLED:-false}"
 export AUTH_DEV_USER_ID="${AUTH_DEV_USER_ID:-dev-user}"
 export AUTH_DEV_TEAM_ID="${AUTH_DEV_TEAM_ID:-00000000-0000-0000-0000-000000000001}"
 export DB_URL="sqlite+aiosqlite:///$PROJECT_ROOT/agentforge_preview.db"
 export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379/1}"
 export MODEL_API_KEY="${MODEL_API_KEY:-test_key}"
+export EMAIL_DELIVERY_MODE="smtp"
+export SMTP_HOST="smtp.qq.com"
+export SMTP_PORT="587"
+export SMTP_USERNAME="2049252009@qq.com"
+export SMTP_PASSWORD="hhxublywftttcagf"
+export SMTP_FROM_EMAIL="2049252009@qq.com"
+export SMTP_FROM_NAME="EyesCloud"
+export SMTP_USE_TLS="true"
+export SMTP_USE_SSL="false"
+
+: > "$SMTP_LOG_FILE"
+{
+  echo "[e2e_fullstack] using hardcoded external smtp provider"
+  echo "[e2e_fullstack] smtp host=$SMTP_HOST port=$SMTP_PORT tls=$SMTP_USE_TLS ssl=$SMTP_USE_SSL from=$SMTP_FROM_EMAIL name=$SMTP_FROM_NAME"
+} >> "$SMTP_LOG_FILE"
+log "using hardcoded external smtp provider host=$SMTP_HOST port=$SMTP_PORT from=$SMTP_FROM_EMAIL"
 
 log "starting backend on 127.0.0.1:8000"
 "$PYTHON_BIN" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 > "$BACKEND_LOG_FILE" 2>&1 &
@@ -220,7 +249,7 @@ echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
 backend_ready=0
 i=0
 while [ "$i" -lt 30 ]; do
-  if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+  if lsof -ti tcp:8000 -sTCP:LISTEN >/dev/null 2>&1; then
     backend_ready=1
     break
   fi
@@ -242,7 +271,10 @@ log "starting frontend after backend is ready"
   if [ ! -d "node_modules" ] || [ ! -x "node_modules/.bin/vite" ]; then
     npm install || exit 1
   fi
-  ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort
+  # Use the package script instead of invoking the vite binary directly so the
+  # same startup path works in restricted environments that explicitly allow
+  # `npm run dev` but not arbitrary child binaries.
+  npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ) > "$FRONTEND_LOG_FILE" 2>&1 &
 FRONTEND_PID="$!"
 echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
@@ -250,7 +282,7 @@ echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
 frontend_ready=0
 j=0
 while [ "$j" -lt 30 ]; do
-  if curl -sf http://127.0.0.1:5173 >/dev/null 2>&1; then
+  if lsof -ti tcp:5173 -sTCP:LISTEN >/dev/null 2>&1; then
     frontend_ready=1
     break
   fi
@@ -268,6 +300,7 @@ if [ "$frontend_ready" -ne 1 ]; then
 fi
 
 log "services ready: backend=http://127.0.0.1:8000, frontend=http://127.0.0.1:5173"
+log "smtp delivery: external provider $SMTP_HOST:$SMTP_PORT as $SMTP_FROM_EMAIL"
 log "sqlite db: $PROJECT_ROOT/agentforge_preview.db"
 log "press Ctrl+C to stop all"
 

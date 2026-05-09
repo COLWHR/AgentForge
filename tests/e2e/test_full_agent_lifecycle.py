@@ -24,12 +24,19 @@ def auth_headers():
 def test_full_agent_lifecycle(client: TestClient, auth_headers):
     # 1. Create Agent
     payload = {
-        "system_prompt": "You are a helpful assistant.",
-        "model_config": {
-            "model": "gpt-3.5-turbo",
-            "temperature": 0.7
+        "name": "Lifecycle Test Agent",
+        "description": "E2E lifecycle test agent",
+        "opening_statement": "You are a helpful assistant.",
+        "llm_provider_url": "https://example.com/v1",
+        "llm_api_key": "test-key",
+        "llm_model_name": "gpt-4o-mini",
+        "runtime_config": {
+            "temperature": 0.7,
         },
-        "tools": ["calculator", "python_add"]
+        "capability_flags": {
+            "supports_tools": False,
+        },
+        "tools": []
     }
     # Path should be /agents (no trailing slash)
     response = client.post("/agents", json=payload, headers=auth_headers)
@@ -66,3 +73,36 @@ def test_full_agent_lifecycle(client: TestClient, auth_headers):
         # Replay data structure check
         assert "execution_id" in log_data["data"]
         assert "react_steps" in log_data["data"]
+
+
+def test_archived_agent_still_appears_in_list(client: TestClient, auth_headers):
+    payload = {
+        "name": "Archived Agent",
+        "description": "Archived list coverage",
+        "opening_statement": "You are a helpful assistant.",
+        "llm_provider_url": "https://example.com/v1",
+        "llm_api_key": "test-key",
+        "llm_model_name": "gpt-4o-mini",
+        "runtime_config": {
+            "temperature": 0.7,
+        },
+        "capability_flags": {
+            "supports_tools": False,
+        },
+        "tools": []
+    }
+
+    create_response = client.post("/agents", json=payload, headers=auth_headers)
+    assert create_response.status_code == 200
+    agent_id = create_response.json()["data"]["id"]
+
+    delete_response = client.delete(f"/agents/{agent_id}", headers=auth_headers)
+    assert delete_response.status_code == 200
+    assert delete_response.json()["data"]["archived"] is True
+
+    list_response = client.get("/agents", headers=auth_headers)
+    assert list_response.status_code == 200
+    agents = list_response.json()["data"]
+    archived_agent = next((agent for agent in agents if agent["id"] == agent_id), None)
+    assert archived_agent is not None
+    assert archived_agent["archived"] is True

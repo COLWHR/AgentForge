@@ -157,6 +157,71 @@ class ExecutionLogService:
             await session.commit()
             logger.info(f"Execution log completed: {execution_id} | Status: {status}")
 
+    async def terminate_if_active(
+        self,
+        execution_id: uuid.UUID,
+        *,
+        final_answer: str,
+        termination_reason: str,
+        team_id: Optional[uuid.UUID] = None,
+    ) -> bool:
+        async with AsyncSessionLocal() as session:
+            stmt_get = select(ExecutionLog).where(ExecutionLog.execution_id == execution_id)
+            if team_id:
+                stmt_get = stmt_get.where(ExecutionLog.team_id == team_id)
+            result = await session.execute(stmt_get)
+            execution = result.scalar_one_or_none()
+            if execution is None or execution.status not in {"PENDING", "RUNNING"}:
+                return False
+
+            existing_data = execution.data or {}
+            existing_data["error_code"] = None
+            existing_data["error_source"] = None
+            existing_data["error_details"] = None
+            stmt = (
+                update(ExecutionLog)
+                .where(ExecutionLog.execution_id == execution_id)
+                .values(
+                    status="TERMINATED",
+                    final_state="TERMINATED",
+                    termination_reason=termination_reason,
+                    final_answer=final_answer,
+                    error_code=None,
+                    error_source=None,
+                    error_message=None,
+                    completed_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                    data=existing_data,
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+            logger.info(f"Execution log stopped by user: {execution_id}")
+            return True
+
+    async def update_streaming_answer(
+        self,
+        execution_id: uuid.UUID,
+        content: str,
+    ) -> None:
+        async with AsyncSessionLocal() as session:
+            stmt_get = select(ExecutionLog.data).where(ExecutionLog.execution_id == execution_id)
+            result = await session.execute(stmt_get)
+            existing_data = result.scalar_one_or_none() or {}
+            existing_data["streaming_answer"] = content
+            stmt = (
+                update(ExecutionLog)
+                .where(ExecutionLog.execution_id == execution_id)
+                .values(
+                    status="RUNNING",
+                    final_answer=content,
+                    updated_at=datetime.now(timezone.utc),
+                    data=existing_data,
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+
     async def append_react_step(
         self,
         execution_id: uuid.UUID,

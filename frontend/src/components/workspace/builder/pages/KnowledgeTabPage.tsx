@@ -1,15 +1,55 @@
 import { Database, FileText, Search, Trash2, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
 
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { knowledgeAdapter, type KnowledgeDocument, type KnowledgeSearchResult } from '../../../../features/knowledge/knowledge.adapter'
 import { notify } from '../../../../features/notifications/notify'
+import { cn } from '../../../../lib/cn'
 import { Button } from '../../../ui/Button'
 import { Input } from '../../../ui/Input'
+
+const uploadAccept = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const maxUploadFileSize = 100 * 1024 * 1024
 
 function formatDate(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+function formatDocumentType(value: string): string {
+  const labels: Record<string, string> = {
+    school_policy: '校规制度',
+    product_policy: '产品规则',
+    faq: 'FAQ',
+    other: '通用资料',
+  }
+  return labels[value] ?? value
+}
+
+function formatMatchType(value: string): string {
+  const labels: Record<string, string> = {
+    exact_clause: '条款命中',
+    hybrid: '混合命中',
+    keyword: '关键词',
+    near_miss: '近似候选',
+  }
+  return labels[value] ?? value
+}
+
+function asMetadataNumber(metadata: Record<string, unknown>, key: string): number | null {
+  const value = metadata[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function asMetadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function isSupportedUploadFile(file: File): boolean {
+  const fileName = file.name.toLowerCase()
+  return fileName.endsWith('.pdf') || fileName.endsWith('.docx')
 }
 
 export function KnowledgeTabPage() {
@@ -25,12 +65,17 @@ export function KnowledgeTabPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isFileDragActive, setIsFileDragActive] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
 
   const canSave = currentAgentId !== null && title.trim().length > 0 && content.trim().length > 0 && !isSaving
   const canUpload = currentAgentId !== null && selectedFile !== null && !isUploading
   const canSearch = currentAgentId !== null && query.trim().length > 0 && !isSearching
   const totalChunks = useMemo(() => documents.reduce((sum, item) => sum + item.chunk_count, 0), [documents])
+  const totalArticles = useMemo(
+    () => documents.reduce((sum, item) => sum + (asMetadataNumber(item.metadata, 'article_count') ?? 0), 0),
+    [documents],
+  )
 
   async function loadDocuments(agentId: string) {
     setIsLoading(true)
@@ -44,11 +89,14 @@ export function KnowledgeTabPage() {
   }
 
   useEffect(() => {
-    setDocuments([])
-    setSearchResults([])
-    if (currentAgentId !== null) {
-      void loadDocuments(currentAgentId)
-    }
+    const timer = window.setTimeout(() => {
+      setDocuments([])
+      setSearchResults([])
+      if (currentAgentId !== null) {
+        void loadDocuments(currentAgentId)
+      }
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [currentAgentId])
 
   async function handleSave() {
@@ -87,6 +135,57 @@ export function KnowledgeTabPage() {
     } finally {
       setIsUploading(false)
     }
+  }
+
+  function selectUploadFile(file: File | null) {
+    if (file === null) return
+    if (!isSupportedUploadFile(file)) {
+      notify.error('仅支持 PDF 或 Word（.docx）文件')
+      return
+    }
+    if (file.size > maxUploadFileSize) {
+      notify.error('文件不能超过 100MB')
+      return
+    }
+    setSelectedFile(file)
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    selectUploadFile(event.target.files?.[0] ?? null)
+    event.target.value = ''
+  }
+
+  function handleFileDragEnter(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!isUploading) {
+      setIsFileDragActive(true)
+    }
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = isUploading ? 'none' : 'copy'
+    if (!isUploading) {
+      setIsFileDragActive(true)
+    }
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsFileDragActive(false)
+    }
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsFileDragActive(false)
+    if (isUploading) return
+    selectUploadFile(event.dataTransfer.files?.[0] ?? null)
   }
 
   async function handleSearch() {
@@ -140,7 +239,7 @@ export function KnowledgeTabPage() {
           </div>
           <div className="text-right text-xs text-text-muted">
             <p>{documents.length} 篇知识</p>
-            <p>{totalChunks} 个分片</p>
+            <p>{totalChunks} 个分片 · {totalArticles} 个条款</p>
           </div>
         </div>
 
@@ -175,21 +274,37 @@ export function KnowledgeTabPage() {
                 上传文件
               </div>
               <Input id="knowledge-file-title" label="文件标题" placeholder="留空则使用文件名" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
-              <label className="block rounded-token-md border border-dashed border-border bg-bg-soft/50 px-4 py-4 text-center text-sm text-text-sub">
+              <label
+                htmlFor="knowledge-file-upload"
+                className={cn(
+                  'flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-token-md border border-dashed px-4 py-5 text-center text-sm transition-colors duration-200',
+                  'focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/40',
+                  isUploading ? 'cursor-not-allowed opacity-60' : 'hover:border-primary/60 hover:bg-primary/5',
+                  isFileDragActive ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-bg-soft/50 text-text-sub',
+                )}
+                onDragEnter={handleFileDragEnter}
+                onDragOver={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
+                onDrop={handleFileDrop}
+              >
                 <input
+                  id="knowledge-file-upload"
                   type="file"
-                  accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept={uploadAccept}
                   className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    setSelectedFile(file)
-                    event.target.value = ''
-                  }}
+                  disabled={isUploading}
+                  onChange={handleFileInputChange}
                 />
                 {selectedFile ? (
-                  <span className="font-medium text-text-main">{selectedFile.name}</span>
+                  <>
+                    <span className="font-medium text-text-main">{selectedFile.name}</span>
+                    <span className="text-xs text-text-muted">点击可重新选择，或拖拽新文件替换</span>
+                  </>
                 ) : (
-                  <span>选择 PDF 或 Word（.docx）文件</span>
+                  <>
+                    <span className="font-medium text-text-main">点击选择文件，或拖拽文件到此处</span>
+                    <span className="text-xs text-text-muted">支持 PDF、Word（.docx）</span>
+                  </>
                 )}
               </label>
               <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
@@ -222,6 +337,16 @@ export function KnowledgeTabPage() {
                         <p className="truncate text-sm font-semibold text-text-main">{item.title}</p>
                         <span className="text-xs text-text-muted">分数 {item.score}</span>
                       </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
+                        <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{formatMatchType(item.match_type)}</span>
+                        <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{formatDocumentType(item.document_type)}</span>
+                        {item.article_label ? <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{item.article_label}</span> : null}
+                        {item.citation_label ? <span className="min-w-0 truncate rounded-token-sm bg-bg-soft px-2 py-0.5">{item.citation_label}</span> : null}
+                        {!item.is_direct_evidence ? <span className="rounded-token-sm bg-warning/10 px-2 py-0.5 text-warning">候选证据</span> : null}
+                      </div>
+                      {item.section_path.length > 0 ? (
+                        <p className="mt-2 truncate text-[11px] text-text-muted">{item.section_path.join(' / ')}</p>
+                      ) : null}
                       <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-text-sub">{item.content}</p>
                     </div>
                   ))
@@ -243,11 +368,23 @@ export function KnowledgeTabPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-text-main">{item.title}</p>
-                          <p className="mt-1 text-xs text-text-muted">{item.chunk_count} 个分片 · {formatDate(item.created_at)}</p>
+                          <p className="mt-1 text-xs text-text-muted">
+                            {item.chunk_count} 个分片 · {asMetadataNumber(item.metadata, 'article_count') ?? 0} 个条款 · {formatDate(item.created_at)}
+                          </p>
                         </div>
                         <Button variant="ghost" size="icon" aria-label="删除知识" title="删除知识" onClick={() => void handleDelete(item.id)}>
                           <Trash2 size={14} className="text-text-muted" />
                         </Button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
+                        <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{formatDocumentType(item.document_type)}</span>
+                        <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{item.status}</span>
+                        {asMetadataString(item.metadata, 'parser_version') ? (
+                          <span className="rounded-token-sm bg-bg-soft px-2 py-0.5">{asMetadataString(item.metadata, 'parser_version')}</span>
+                        ) : null}
+                        {item.source_filename ? (
+                          <span className="min-w-0 truncate rounded-token-sm bg-bg-soft px-2 py-0.5">{item.source_filename}</span>
+                        ) : null}
                       </div>
                       <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-text-sub">{item.content}</p>
                     </div>

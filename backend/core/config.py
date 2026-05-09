@@ -9,6 +9,18 @@ from dotenv import dotenv_values
 # Determine project root based on backend module location
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+HARDCODED_SMTP_CONFIG = {
+    "SMTP_HOST": "smtp.qq.com",
+    "SMTP_PORT": 587,
+    "SMTP_USERNAME": "2049252009@qq.com",
+    "SMTP_PASSWORD": "hhxublywftttcagf",
+    "SMTP_FROM_EMAIL": "2049252009@qq.com",
+    "SMTP_FROM_NAME": "EyesCloud",
+    "SMTP_USE_TLS": True,
+    "SMTP_USE_SSL": False,
+    "EMAIL_DELIVERY_MODE": "smtp",
+}
+
 class Settings(BaseSettings):
     # Mandatory fields
     MODEL_API_KEY: str = ""
@@ -20,10 +32,44 @@ class Settings(BaseSettings):
     REDIS_URL: str
     JWT_SECRET: str = "agentforge-secret-key-phase-7"
     AGENT_CONFIG_SECRET: str = "agentforge-agent-config-secret"
+    ACCESS_TOKEN_TTL_SECONDS: int = 3600
+    REFRESH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 30
     AUTH_DEV_BYPASS_ENABLED: bool = False
     AUTH_DEV_USER_ID: str = "dev-user"
     AUTH_DEV_TEAM_ID: str = "00000000-0000-0000-0000-000000000001"
     AUTH_DEV_ROLE: str = "developer"
+    SMTP_HOST: str = "smtp.qq.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = "2049252009@qq.com"
+    SMTP_PASSWORD: str = "hhxublywftttcagf"
+    SMTP_FROM_EMAIL: str = "2049252009@qq.com"
+    SMTP_FROM_NAME: str = "EyesCloud"
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
+    SMTP_TIMEOUT_SECONDS: int = 5
+    EMAIL_DELIVERY_MODE: str = "smtp"
+    AVATAR_STORAGE_PROVIDER: str = "local"
+    AVATAR_PUBLIC_BASE_URL: str = ""
+    OBJECT_STORAGE_ENDPOINT: str = ""
+    OBJECT_STORAGE_REGION: str = ""
+    OBJECT_STORAGE_BUCKET: str = ""
+    OBJECT_STORAGE_ACCESS_KEY: str = ""
+    OBJECT_STORAGE_SECRET_KEY: str = ""
+    OBJECT_STORAGE_PUBLIC_BASE_URL: str = ""
+    OBJECT_STORAGE_USE_SSL: bool = True
+    OBJECT_STORAGE_VERIFY_TLS: bool = True
+    OBJECT_STORAGE_FORCE_PATH_STYLE: bool = True
+    OBJECT_STORAGE_PUBLIC_READ: bool = True
+    EMAIL_VERIFICATION_CODE_TTL_SECONDS: int = 600
+    PASSWORD_RESET_CODE_TTL_SECONDS: int = 600
+    EMAIL_SEND_RATE_LIMIT_SECONDS: int = 60
+    EMAIL_SEND_MAX_RETRIES: int = 3
+    EMAIL_SEND_RETRY_DELAYS_SECONDS: str = "1,3"
+    REGISTRATION_TOKEN_TTL_SECONDS: int = 1800
+    SEARCH_ID_MIN: int = 10000000
+    SEARCH_ID_MAX: int = 99999999
+    DEFAULT_TEAM_TOKEN_LIMIT: int = 1000000
+    DEFAULT_TEAM_RATE_LIMIT: int = 100
     
     # Optional fields with defaults
     ENV: str = "dev"
@@ -83,9 +129,15 @@ class Settings(BaseSettings):
         elif yaml_db_url.startswith("sqlite+aiosqlite:///./"):
             yaml_data["DB_URL"] = f"sqlite+aiosqlite:///{PROJECT_ROOT / yaml_db_url.removeprefix('sqlite+aiosqlite:///./')}"
         
-        # 4. Initialize Settings. Pydantic will still handle internal .env loading if configured,
-        # but since we filtered yaml_data, constructor arguments won't override them.
-        return cls(**yaml_data)
+        # 4. Initialize Settings.
+        settings = cls(**yaml_data)
+
+        # SMTP is intentionally hardcoded in-project for this deployment path.
+        # Force these values after env/.env/YAML resolution so runtime overrides
+        # cannot silently switch the outbound mail provider.
+        for key, value in HARDCODED_SMTP_CONFIG.items():
+            setattr(settings, key, value)
+        return settings
 
     @property
     def is_dev_env(self) -> bool:
@@ -93,9 +145,7 @@ class Settings(BaseSettings):
 
     @property
     def auth_dev_bypass_enabled(self) -> bool:
-        # In local/dev, bypass is enabled by default.
-        # Outside local/dev, only explicit flag can enable it (guarded by fail-fast in main).
-        return self.is_dev_env or self.AUTH_DEV_BYPASS_ENABLED
+        return self.AUTH_DEV_BYPASS_ENABLED
 
     @property
     def is_prod_like_env(self) -> bool:

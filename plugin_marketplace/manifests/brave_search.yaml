@@ -30,6 +30,12 @@ tools:
   - name: web_search
     display_name: Web Search
     description: Search the web using Brave Search
+    risk_level: medium
+    side_effect: external_read
+    requires_confirmation: false
+    allowed_intents: ["TOOL_REQUIRED", "TOOL_OPTIONAL"]
+    domains: ["web_search", "web"]
+    max_calls_per_run: 3
     input_schema:
       type: object
       properties:

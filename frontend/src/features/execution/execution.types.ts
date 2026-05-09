@@ -26,7 +26,17 @@ export interface ExecutionStep {
   } | null
 }
 
-export type ExecutionStepLogPhase = 'knowledge_retrieval' | 'model_call' | 'tool_call' | 'observation' | 'final_answer'
+export type ExecutionStepLogPhase =
+  | 'intent_classification'
+  | 'pre_policy_gate'
+  | 'knowledge_retrieval'
+  | 'retrieval_policy_gate'
+  | 'model_call'
+  | 'tool_policy_gate'
+  | 'tool_call'
+  | 'observation'
+  | 'final_answer_policy_gate'
+  | 'final_answer'
 
 export interface ExecutionStepLog {
   execution_id: string
@@ -58,7 +68,7 @@ export interface ExecutionSnapshot {
   last_user_input?: string | null
 }
 
-export interface ExecutionStoreState {
+export interface ExecutionRuntimeState {
   current_execution_id: string | null
   is_execution_starting: boolean
   status: ExecutionStatus
@@ -80,31 +90,37 @@ export interface ExecutionStoreState {
   conversation_messages: ConversationMessage[]
   conversation_messages_hidden: boolean
   conversation_cleared_execution_id: string | null
+}
+
+export interface ConversationSession extends ExecutionRuntimeState {
+  id: string
+  agent_id: string | null
+  title: string
+  created_at: number
+  updated_at: number
+}
+
+export interface ExecutionStoreState extends ExecutionRuntimeState {
+  conversation_agent_id: string | null
+  conversation_sessions: ConversationSession[]
+  active_conversation_id: string | null
   startExecution: (agent_id: string, input: string) => void
   updateExecution: (data: ExecutionSnapshot) => void
+  markExecutionStoppedByUser: () => void
   finishExecution: () => void
   resetExecution: () => void
   clearConversationMessages: (agent_id?: string | null, opening_statement?: string | null) => void
   setOpeningMessage: (agent_id: string | null, opening_statement: string | null) => void
+  createConversationSession: (agent_id?: string | null, opening_statement?: string | null) => string | null
+  selectConversationSession: (session_id: string) => void
+  deleteConversationSession: (session_id: string, agent_id?: string | null, opening_statement?: string | null) => void
   setPreviewPhase: (phase: PreviewPhase | null) => void
   setPreviewUrl: (url: string | null) => void
   setDeploymentState: (status: DeploymentStatus, deployedUrl?: string | null) => void
   setLastUserInput: (input: string | null) => void
 }
 
-export const IDLE_EXECUTION_STATE: Omit<
-  ExecutionStoreState,
-  | 'startExecution'
-  | 'updateExecution'
-  | 'finishExecution'
-  | 'resetExecution'
-  | 'clearConversationMessages'
-  | 'setOpeningMessage'
-  | 'setPreviewPhase'
-  | 'setPreviewUrl'
-  | 'setDeploymentState'
-  | 'setLastUserInput'
-> = {
+export const IDLE_EXECUTION_STATE: ExecutionRuntimeState = {
   current_execution_id: null,
   is_execution_starting: false,
   status: 'IDLE',

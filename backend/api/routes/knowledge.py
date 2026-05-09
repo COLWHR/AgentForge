@@ -85,6 +85,8 @@ async def upload_knowledge_document(
         team_id=uuid.UUID(auth.team_id),
         title=(title or "").strip() or extracted_title,
         content=content,
+        source_filename=file.filename,
+        source_mime_type=file.content_type,
     )
     return BaseResponse.success(data=document, message="Uploaded successfully")
 
@@ -103,6 +105,10 @@ async def search_knowledge(
         team_id=uuid.UUID(auth.team_id),
         query=payload.query,
         limit=payload.limit,
+        retrieval_mode=payload.retrieval_mode,
+        article_no=payload.article_no,
+        include_near_misses=payload.include_near_misses,
+        document_type=payload.document_type,
     )
     return BaseResponse.success(data=results, message="OK")
 

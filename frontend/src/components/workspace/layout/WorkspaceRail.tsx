@@ -1,6 +1,8 @@
 import { AlertTriangle, Archive, Clock, FolderKanban, MessageSquare, MoreHorizontal, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
+import { AGENT_CONFIG_DRAFT_EVENT, ensureCreateAgentConfigDraft, readAgentConfigDraft } from '../../../features/agent/agentConfigDraft'
 import { useAgentStore } from '../../../features/agent/agent.store'
 import { notify } from '../../../features/notifications/notify'
 import { useBuilderTabsStore } from '../../../features/ui-shell/builderTabs.store'
@@ -10,6 +12,7 @@ import { Button } from '../../ui/Button'
 import { Input } from '../../ui/Input'
 import { SessionList } from '../history/SessionList'
 import { SessionListItem } from '../history/SessionListItem'
+import { UserSummary } from './UserSummary'
 
 const PINNED_AGENT_IDS_STORAGE_KEY = 'AGENTFORGE_PINNED_AGENT_IDS'
 
@@ -59,6 +62,8 @@ function mapArcErrorCode(code: string | null): string {
 }
 
 export function WorkspaceRail() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const leftPanelWidth = useUiShellStore((state) => state.leftPanelWidth)
   const openBuilderTab = useBuilderTabsStore((state) => state.openTab)
   const agentList = useAgentStore((state) => state.agent_list)
@@ -75,10 +80,18 @@ export function WorkspaceRail() {
   const [isDeletingDamagedAgent, setIsDeletingDamagedAgent] = useState(false)
   const [pinnedAgentIds, setPinnedAgentIds] = useState<string[]>(() => readPinnedAgentIds())
   const [agentSearch, setAgentSearch] = useState('')
+  const [hasCreateDraft, setHasCreateDraft] = useState(() => readAgentConfigDraft() !== null)
+  const [createDraftName, setCreateDraftName] = useState(() => readAgentConfigDraft()?.name.trim() ?? '')
   const damagedAgent = useMemo(
     () => (damagedAgentId === null ? null : agentList.find((agent) => agent.id === damagedAgentId) ?? null),
     [agentList, damagedAgentId],
   )
+
+  const goToAgentsWorkspace = () => {
+    if (location.pathname !== '/agents') {
+      navigate('/agents')
+    }
+  }
 
   const orderedAgents = useMemo(() => {
     const pinnedSet = new Set(pinnedAgentIds)
@@ -129,7 +142,32 @@ export function WorkspaceRail() {
     return () => window.removeEventListener('click', closeMenu)
   }, [menuOpenAgentId])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const syncDraftState = () => {
+      const draft = readAgentConfigDraft()
+      setHasCreateDraft(draft !== null)
+      setCreateDraftName(draft?.name.trim() ?? '')
+    }
+
+    syncDraftState()
+    window.addEventListener(AGENT_CONFIG_DRAFT_EVENT, syncDraftState)
+    window.addEventListener('storage', syncDraftState)
+    return () => {
+      window.removeEventListener(AGENT_CONFIG_DRAFT_EVENT, syncDraftState)
+      window.removeEventListener('storage', syncDraftState)
+    }
+  }, [])
+
   const openAgentConfigTab = (mode: 'create' | 'edit', agentId?: string) => {
+    if (mode === 'create') {
+      const draft = ensureCreateAgentConfigDraft()
+      setHasCreateDraft(true)
+      setCreateDraftName(draft.name.trim())
+    }
     openBuilderTab({
       type: 'agent_config',
       params: mode === 'edit' ? { mode, agentId: agentId ?? currentAgentId } : { mode },
@@ -239,6 +277,7 @@ export function WorkspaceRail() {
             title="新建智能体"
             onClick={() => {
               openAgentConfigTab('create')
+              goToAgentsWorkspace()
             }}
           >
             <Plus size={16} />
@@ -271,6 +310,18 @@ export function WorkspaceRail() {
             </SessionList>
 
             <SessionList title="最近智能体">
+              {hasCreateDraft && (
+                <SessionListItem
+                  id="draft-agent"
+                  title={createDraftName.length > 0 ? createDraftName : '未保存的新智能体'}
+                  subtitle="继续填写配置后保存"
+                  icon={<Plus size={16} />}
+                  onClick={() => {
+                    openAgentConfigTab('create')
+                    goToAgentsWorkspace()
+                  }}
+                />
+              )}
               {isAgentListLoading && <SessionListItem id="loading-agents" title="正在加载智能体..." icon={<Clock size={16} />} />}
               {!isAgentListLoading && visibleRecentAgents.map((agent) => {
                 const isPinned = pinnedAgentIds.includes(agent.id)
@@ -291,6 +342,7 @@ export function WorkspaceRail() {
                           return
                         }
                         void selectAgent(agent.id)
+                        goToAgentsWorkspace()
                       }}
                     >
                       <div className="mt-0.5 shrink-0 text-text-muted"><MessageSquare size={16} /></div>
@@ -385,6 +437,8 @@ export function WorkspaceRail() {
             </SessionList>
           </div>
       </div>
+
+      <UserSummary />
 
       {damagedAgent !== null && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4">

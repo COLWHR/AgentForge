@@ -91,6 +91,16 @@ class ExtensionManager:
                 if existing_tool:
                     existing_tool.description = tool_desc.description
                     existing_tool.input_schema = tool_desc.input_schema
+                    existing_tool.risk_level = tool_desc.risk_level
+                    existing_tool.side_effect = tool_desc.side_effect
+                    existing_tool.requires_confirmation = tool_desc.requires_confirmation
+                    existing_tool.allowed_intents = tool_desc.allowed_intents
+                    existing_tool.domains = tool_desc.domains
+                    existing_tool.requires_auth_scope = tool_desc.requires_auth_scope
+                    existing_tool.max_calls_per_run = tool_desc.max_calls_per_run
+                    existing_tool.timeout_ms = tool_desc.timeout_ms
+                    existing_tool.returns_sensitive_data = tool_desc.returns_sensitive_data
+                    existing_tool.audit_payload_level = tool_desc.audit_payload_level
                     existing_tool.enabled = True
                 else:
                     tool = Tool(
@@ -100,6 +110,16 @@ class ExtensionManager:
                         description=tool_desc.description,
                         enabled=True,
                         input_schema=tool_desc.input_schema,
+                        risk_level=tool_desc.risk_level,
+                        side_effect=tool_desc.side_effect,
+                        requires_confirmation=tool_desc.requires_confirmation,
+                        allowed_intents=tool_desc.allowed_intents,
+                        domains=tool_desc.domains,
+                        requires_auth_scope=tool_desc.requires_auth_scope,
+                        max_calls_per_run=tool_desc.max_calls_per_run,
+                        timeout_ms=tool_desc.timeout_ms,
+                        returns_sensitive_data=tool_desc.returns_sensitive_data,
+                        audit_payload_level=tool_desc.audit_payload_level,
                     )
                     session.add(tool)
 

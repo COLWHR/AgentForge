@@ -42,6 +42,15 @@ class ToolListItem(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     input_schema: Dict[str, Any] = Field(default_factory=dict)
+    risk_level: str = "medium"
+    side_effect: str = "read"
+    requires_confirmation: bool = False
+    allowed_intents: List[str] = Field(default_factory=list)
+    domains: List[str] = Field(default_factory=list)
+    max_calls_per_run: int = 2
+    timeout_ms: int = 10000
+    returns_sensitive_data: bool = False
+    audit_payload_level: str = "summary"
 
 
 class ToolExecuteRequest(BaseModel):

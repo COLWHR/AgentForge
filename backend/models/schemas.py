@@ -32,6 +32,109 @@ class AuthContext(BaseModel):
     request_id: str
     role: str = "member"
     is_dev: bool = False
+    search_id: Optional[int] = None
+    email: Optional[str] = None
+    email_verified: bool = False
+
+
+class AuthUserProfile(BaseModel):
+    user_id: str
+    search_id: int
+    email: str
+    email_verified: bool
+    display_name: str
+    avatar_url: Optional[str] = None
+    status: str
+    team_id: Optional[str] = None
+    role: Optional[str] = None
+
+
+class PublicUserProfile(BaseModel):
+    search_id: int
+    display_name: str
+    avatar_url: Optional[str] = None
+    status: str
+
+
+class RegisterEmailRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if "@" not in email or email.startswith("@") or email.endswith("@"):
+            raise ValueError("invalid email")
+        return email
+
+
+class RegisterStartRequest(RegisterEmailRequest):
+    delivery_mode: Optional[Literal["local"]] = None
+
+
+class RegisterVerifyRequest(RegisterEmailRequest):
+    code: str
+
+
+class RegisterVerifyResponse(BaseModel):
+    email: str
+    registration_token: str
+    expires_in_seconds: int
+
+
+class RegisterCompleteRequest(RegisterEmailRequest):
+    registration_token: str
+    password: str
+    confirm_password: str
+    display_name: str
+    avatar_url: Optional[str] = None
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        display_name = value.strip()
+        if not display_name:
+            raise ValueError("display_name cannot be empty")
+        if len(display_name) > 80:
+            raise ValueError("display_name is too long")
+        return display_name
+
+
+class RegisterStartResponse(BaseModel):
+    email: str
+    expires_in_seconds: int
+    retry_after_seconds: int
+    dev_code: Optional[str] = None
+
+
+class AvatarUploadResponse(BaseModel):
+    avatar_url: str
+
+
+class LoginRequest(RegisterEmailRequest):
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class PasswordForgotRequest(RegisterEmailRequest):
+    pass
+
+
+class PasswordResetRequest(RegisterEmailRequest):
+    code: str
+    new_password: str
+
+
+class TokenPairResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in_seconds: int
+    user: AuthUserProfile
+
 
 class TokenUsage(BaseModel):
     prompt_tokens: int = 0
@@ -130,11 +233,95 @@ class ExecutionResult(BaseModel):
 class ExecutionStepLogContract(BaseModel):
     execution_id: str
     step_index: int
-    phase: Literal["knowledge_retrieval", "model_call", "tool_call", "observation", "final_answer"]
+    phase: Literal[
+        "intent_classification",
+        "pre_policy_gate",
+        "knowledge_retrieval",
+        "retrieval_policy_gate",
+        "model_call",
+        "tool_policy_gate",
+        "tool_call",
+        "observation",
+        "final_answer_policy_gate",
+        "final_answer",
+    ]
     tool_id: Optional[str] = None
     status: Literal["success", "error"]
     payload: Dict[str, Any]
     timestamp: str
+
+
+class IntentClassificationResult(BaseModel):
+    intent_type: Literal[
+        "DIRECT_CHAT",
+        "KB_REQUIRED",
+        "KB_OPTIONAL",
+        "TOOL_REQUIRED",
+        "TOOL_OPTIONAL",
+        "HIGH_RISK_TOOL",
+        "CLARIFY_REQUIRED",
+        "UNSUPPORTED",
+    ]
+    query_subtype: Literal[
+        "exact_clause",
+        "policy_explanation",
+        "document_summary",
+        "fact_lookup",
+        "tool_operation",
+        "smalltalk",
+    ]
+    confidence: float
+    matched_rules: List[str] = Field(default_factory=list)
+    required_knowledge_domains: List[str] = Field(default_factory=list)
+    candidate_tool_domains: List[str] = Field(default_factory=list)
+    requires_citation: bool = False
+    allow_direct_answer: bool = True
+    requires_user_confirmation: bool = False
+    missing_slots: List[str] = Field(default_factory=list)
+
+
+class RetrievalPolicy(BaseModel):
+    retrieval_mode: Literal["none", "optional_hybrid", "required_hybrid", "exact_clause", "document_summary"]
+    limit: int = 4
+    min_score: float = 0.0
+    required: bool = False
+
+
+class BlockedToolDecision(BaseModel):
+    tool_id: str
+    reason_code: str
+    reason_message: str
+
+
+class FinalAnswerConstraints(BaseModel):
+    requires_citation: bool = False
+    evidence_required: bool = False
+    forbid_unverified_clause: bool = False
+
+
+class PolicyGateDecision(BaseModel):
+    retrieval_required: bool
+    retrieval_mode: str
+    direct_answer_allowed: bool
+    requires_citation: bool
+    allowed_tool_ids_for_turn: List[str] = Field(default_factory=list)
+    blocked_tool_ids: List[BlockedToolDecision] = Field(default_factory=list)
+    requires_user_confirmation: bool = False
+    final_answer_constraints: FinalAnswerConstraints = Field(default_factory=FinalAnswerConstraints)
+
+
+class ToolPolicyDecision(BaseModel):
+    allowed: bool
+    reason_code: Optional[str] = None
+    reason_message: Optional[str] = None
+    terminal: bool = False
+
+
+class FinalAnswerPolicyDecision(BaseModel):
+    accepted: bool
+    violation_code: Optional[str] = None
+    safe_final_answer: Optional[str] = None
+    requires_retry: bool = False
 
 
 class FinalAnswerContract(BaseModel):
@@ -157,6 +344,8 @@ class AgentCapabilityFlags(BaseModel):
 class AgentRuntimeConfig(BaseModel):
     temperature: float = 0.7
     max_tokens: Optional[int] = None
+    context_window: Optional[int] = None
+    reserved_completion_tokens: Optional[int] = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -244,12 +433,25 @@ class KnowledgeDocumentRead(BaseModel):
     title: str
     content: str
     chunk_count: int = 0
+    document_type: str = "other"
+    source_filename: Optional[str] = None
+    source_mime_type: Optional[str] = None
+    source_hash: Optional[str] = None
+    version_label: Optional[str] = None
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
+    status: str = "ACTIVE"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
 class KnowledgeSearchRequest(BaseModel):
     query: str
     limit: int = 5
+    retrieval_mode: str = "optional_hybrid"
+    document_type: Optional[str] = None
+    article_no: Optional[str] = None
+    include_near_misses: bool = True
 
     @field_validator("query")
     @classmethod
@@ -270,6 +472,14 @@ class KnowledgeSearchResult(BaseModel):
     title: str
     content: str
     score: float
+    match_type: str = "keyword"
+    document_type: str = "other"
+    article_no: Optional[str] = None
+    article_label: Optional[str] = None
+    section_path: List[str] = Field(default_factory=list)
+    page_no: Optional[int] = None
+    citation_label: str = ""
+    is_direct_evidence: bool = True
 
 class ConversationHistoryMessage(BaseModel):
     role: Literal["user", "assistant"]
@@ -286,11 +496,13 @@ class ConversationHistoryMessage(BaseModel):
 class ExecuteAgentRequest(BaseModel):
     input: str
     conversation_history: List[ConversationHistoryMessage] = Field(default_factory=list)
+    confirmed_tool_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    policy_overrides: Optional[Dict[str, Any]] = None
 
 class ExecuteAgentResponse(BaseModel):
     execution_id: UUID4
     final_state: ExecutionState
-    termination_reason: TerminationReason
+    termination_reason: Optional[TerminationReason] = None
     steps_used: int
     request_id: str
 

@@ -30,6 +30,12 @@ tools:
   - name: search_repos
     display_name: Search Repositories
     description: Search GitHub repositories by keyword
+    risk_level: medium
+    side_effect: external_read
+    requires_confirmation: false
+    allowed_intents: ["TOOL_REQUIRED", "TOOL_OPTIONAL"]
+    domains: ["github", "code", "repository"]
+    max_calls_per_run: 3
     input_schema:
       type: object
       properties:
@@ -44,6 +50,12 @@ tools:
   - name: get_issue
     display_name: Get Issue
     description: Get details of a GitHub issue
+    risk_level: medium
+    side_effect: external_read
+    requires_confirmation: false
+    allowed_intents: ["TOOL_REQUIRED", "TOOL_OPTIONAL"]
+    domains: ["github", "issue", "repository"]
+    max_calls_per_run: 3
     input_schema:
       type: object
       properties:
@@ -58,6 +70,12 @@ tools:
   - name: create_issue
     display_name: Create Issue
     description: Create a new GitHub issue
+    risk_level: high
+    side_effect: external_write
+    requires_confirmation: true
+    allowed_intents: ["HIGH_RISK_TOOL", "TOOL_REQUIRED"]
+    domains: ["github", "issue", "repository"]
+    max_calls_per_run: 1
     input_schema:
       type: object
       properties:

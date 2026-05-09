@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Mic, Paperclip, Send } from 'lucide-react'
+import { Mic, Paperclip, Send, Square } from 'lucide-react'
 
 import { useAgentStore } from '../../../features/agent/agent.store'
 import { executionAdapter } from '../../../features/execution/execution.adapter'
@@ -18,6 +18,7 @@ export function ChatComposer() {
   const executionStatus = useExecutionStore((state) => state.status)
   const isExecutionLocked = executionStatus === 'PENDING' || executionStatus === 'RUNNING'
   const isComposerLocked = isExecutionLocked || isExecutionStarting
+  const canStopExecution = isComposerLocked
   const isAgentAvailable = currentAgentDetail !== null && currentAgentDetail.is_available
   const isAgentReady = currentAgentId !== null && isAgentAvailable && agentContextStatus === 'READY'
   const isDisabled = !isAgentReady || isComposerLocked
@@ -55,6 +56,13 @@ export function ChatComposer() {
       textareaRef.current?.blur()
     }
   }, [currentAgentId, disabledHint, input, isComposerLocked, isDisabled, isAgentReady])
+
+  const stopExecution = useCallback(async () => {
+    if (!canStopExecution) {
+      return
+    }
+    await executionAdapter.stopCurrentExecution()
+  }, [canStopExecution])
 
   useEffect(() => {
     if (isComposerLocked) {
@@ -99,6 +107,10 @@ export function ChatComposer() {
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
+            if (canStopExecution) {
+              void stopExecution()
+              return
+            }
             void submitExecution()
           }
         }}
@@ -115,15 +127,19 @@ export function ChatComposer() {
         <Button
           variant="primary"
           size="icon"
-          aria-label="发送消息"
-          title={isComposerLocked ? '模型回复完成后可以继续输入' : '发送消息'}
+          aria-label={canStopExecution ? '停止模型回复' : '发送消息'}
+          title={canStopExecution ? '停止当前模型行为' : '发送消息'}
           className="h-6 w-6 rounded-token-md"
-          disabled={isDisabled}
+          disabled={!canStopExecution && isDisabled}
           onClick={() => {
+            if (canStopExecution) {
+              void stopExecution()
+              return
+            }
             void submitExecution()
           }}
         >
-          <Send size={12} className="text-white" />
+          {canStopExecution ? <Square size={11} className="fill-white text-white" /> : <Send size={12} className="text-white" />}
         </Button>
       </div>
     </div>

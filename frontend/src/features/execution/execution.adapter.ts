@@ -6,9 +6,11 @@ import { useExecutionStore } from './execution.store'
 import {
   IDLE_EXECUTION_STATE,
   type ConversationMessage,
+  type ExecutionRuntimeState,
   type DeploymentStatus,
   type ExecutionSnapshot,
   type ExecutionStepLog,
+  type ExecutionStoreState,
   type ExecutionStatus,
   type PreviewPhase,
 } from './execution.types'
@@ -16,6 +18,7 @@ import {
 interface ExecuteRequest {
   input: string
   conversation_history: ConversationHistoryItem[]
+  confirmed_tool_actions?: ConfirmedToolAction[]
 }
 
 interface ConversationHistoryItem {
@@ -23,11 +26,21 @@ interface ConversationHistoryItem {
   content: string
 }
 
+export interface ConfirmedToolAction {
+  tool_id: string
+  action_summary?: string
+  arguments_hash: string
+  confirmed_at: string
+}
+
 interface ExecuteResponse {
   execution_id: string
 }
 
 const STARTABLE_STATUSES: ExecutionStatus[] = ['IDLE', 'SUCCEEDED', 'FAILED', 'TERMINATED']
+const SESSION_TITLE_MAX_LENGTH = 24
+const STOPPED_BY_USER_MESSAGE = '已停止：用户主动停止了当前模型行为。'
+let startExecutionController: AbortController | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -44,6 +57,42 @@ function createUserConversationMessage(input: string): ConversationMessage {
   }
 }
 
+function summarizeConversationTitle(input: string | null, messages: ConversationMessage[], fallback = '新对话'): string {
+  const candidate =
+    (typeof input === 'string' && input.trim().length > 0 ? input : null) ??
+    messages.find((message) => message.role === 'user' && message.content.trim().length > 0)?.content ??
+    fallback
+  const normalized = candidate.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= SESSION_TITLE_MAX_LENGTH) {
+    return normalized
+  }
+  return `${normalized.slice(0, SESSION_TITLE_MAX_LENGTH).trim()}...`
+}
+
+function syncActiveConversationState(
+  state: ExecutionStoreState,
+  runtime: Partial<ExecutionRuntimeState>,
+): Pick<ExecutionStoreState, 'conversation_sessions'> {
+  if (state.active_conversation_id === null) {
+    return { conversation_sessions: state.conversation_sessions }
+  }
+
+  const nextMessages = runtime.conversation_messages ?? state.conversation_messages
+  const nextLastUserInput = runtime.last_user_input ?? state.last_user_input
+  return {
+    conversation_sessions: state.conversation_sessions.map((session) =>
+      session.id === state.active_conversation_id
+        ? {
+            ...session,
+            ...runtime,
+            title: summarizeConversationTitle(nextLastUserInput, nextMessages, session.title),
+            updated_at: Date.now(),
+          }
+        : session,
+    ),
+  }
+}
+
 function buildConversationHistory(messages: ConversationMessage[]): ConversationHistoryItem[] {
   return messages
     .filter((message) => {
@@ -54,9 +103,9 @@ function buildConversationHistory(messages: ConversationMessage[]): Conversation
         return false
       }
       if (message.role === 'user') {
-        return message.execution_id !== null && message.status !== 'FAILED'
+        return message.execution_id !== null && message.status === 'SUCCEEDED'
       }
-      return message.status !== 'PENDING' && message.status !== 'FAILED'
+      return message.status === 'SUCCEEDED'
     })
     .map((message) => ({
       role: message.role,
@@ -243,10 +292,15 @@ function asReactSteps(value: unknown): ExecutionSnapshot['react_steps'] {
 
 function asStepLogPhase(value: unknown): ExecutionStepLog['phase'] {
   if (
+    value === 'intent_classification' ||
+    value === 'pre_policy_gate' ||
     value === 'knowledge_retrieval' ||
+    value === 'retrieval_policy_gate' ||
     value === 'model_call' ||
+    value === 'tool_policy_gate' ||
     value === 'tool_call' ||
     value === 'observation' ||
+    value === 'final_answer_policy_gate' ||
     value === 'final_answer'
   ) {
     return value
@@ -349,13 +403,15 @@ export const executionAdapter = {
   },
 
   handleNewConversation() {
-    useExecutionStore.getState().resetExecution()
+    const agentStore = useAgentStore.getState()
+    useExecutionStore.getState().createConversationSession(agentStore.current_agent_id, agentStore.current_agent_detail?.opening_statement ?? null)
   },
 
-  async startExecution(agent_id: string, input: string): Promise<ExecuteResponse | null> {
+  async startExecution(agent_id: string, input: string, confirmedToolActions: ConfirmedToolAction[] = []): Promise<ExecuteResponse | null> {
+
     const agentStore = useAgentStore.getState()
-    const store = useExecutionStore.getState()
     const normalizedInput = input.trim()
+    let store = useExecutionStore.getState()
     const canStart = STARTABLE_STATUSES.includes(store.status)
 
     if (
@@ -376,10 +432,16 @@ export const executionAdapter = {
       return null
     }
 
+    if (store.active_conversation_id === null) {
+      store.createConversationSession(agent_id, agentStore.current_agent_detail?.opening_statement ?? null)
+      store = useExecutionStore.getState()
+    }
+
     const conversationHistory = buildConversationHistory(store.conversation_messages)
     const userMessage = createUserConversationMessage(normalizedInput)
     const conversationMessages = [...store.conversation_messages, userMessage]
-    useExecutionStore.setState(() => ({
+    useExecutionStore.setState((state) => ({
+      ...state,
       ...IDLE_EXECUTION_STATE,
       current_execution_id: null,
       is_execution_starting: true,
@@ -387,20 +449,39 @@ export const executionAdapter = {
       last_user_input: normalizedInput,
       conversation_messages: conversationMessages,
       conversation_cleared_execution_id: null,
+      ...syncActiveConversationState(state, {
+        ...IDLE_EXECUTION_STATE,
+        current_execution_id: null,
+        is_execution_starting: true,
+        status: 'PENDING',
+        last_user_input: normalizedInput,
+        conversation_messages: conversationMessages,
+        conversation_cleared_execution_id: null,
+      }),
     }))
+
+    startExecutionController?.abort()
+    startExecutionController = new AbortController()
 
     try {
       const result = await apiClient.request<ExecuteResponse>(`/agents/${agent_id}/execute`, {
         method: 'POST',
-        body: { input: normalizedInput, conversation_history: conversationHistory } satisfies ExecuteRequest,
+        body: {
+          input: normalizedInput,
+          conversation_history: conversationHistory,
+          confirmed_tool_actions: confirmedToolActions,
+        } satisfies ExecuteRequest,
+        signal: startExecutionController.signal,
         authMode: 'required',
       })
+      startExecutionController = null
       const executionId = asExecutionId(result.data.execution_id)
       const messagesWithExecutionId = useExecutionStore.getState().conversation_messages.map((message) =>
         message.id === userMessage.id ? { ...message, execution_id: executionId } : message,
       )
 
-      useExecutionStore.setState(() => ({
+      useExecutionStore.setState((state) => ({
+        ...state,
         ...IDLE_EXECUTION_STATE,
         current_execution_id: executionId,
         is_execution_starting: false,
@@ -408,36 +489,94 @@ export const executionAdapter = {
         last_user_input: normalizedInput,
         preview_phase: 'planning',
         conversation_messages: messagesWithExecutionId,
+        ...syncActiveConversationState(state, {
+          ...IDLE_EXECUTION_STATE,
+          current_execution_id: executionId,
+          is_execution_starting: false,
+          status: 'PENDING',
+          last_user_input: normalizedInput,
+          preview_phase: 'planning',
+          conversation_messages: messagesWithExecutionId,
+        }),
       }))
 
       return {
         execution_id: executionId,
       }
     } catch (error) {
+      startExecutionController = null
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return null
+      }
       const apiError = normalizeApiError(error)
-      useExecutionStore.setState(() => ({
-        ...IDLE_EXECUTION_STATE,
-        is_execution_starting: false,
-        status: 'FAILED',
-        error_message: apiError.message,
-        termination_reason: apiError.message,
-        last_user_input: normalizedInput,
-        preview_phase: 'failed',
-        deployment_status: 'FAILED',
-        conversation_messages: [
+      useExecutionStore.setState((state) => {
+        const failedConversationMessages = [
           ...conversationMessages,
           {
             id: `assistant:start-failed:${Date.now()}`,
-            role: 'assistant',
+            role: 'assistant' as const,
             content: apiError.message,
             execution_id: null,
-            status: 'FAILED',
-            source: 'chat',
+            status: 'FAILED' as const,
+            source: 'chat' as const,
           },
-        ],
-      }))
+        ]
+        return {
+          ...state,
+          ...IDLE_EXECUTION_STATE,
+          is_execution_starting: false,
+          status: 'FAILED',
+          error_message: apiError.message,
+          termination_reason: apiError.message,
+          last_user_input: normalizedInput,
+          preview_phase: 'failed',
+          deployment_status: 'FAILED',
+          conversation_messages: failedConversationMessages,
+          ...syncActiveConversationState(state, {
+            ...IDLE_EXECUTION_STATE,
+            is_execution_starting: false,
+            status: 'FAILED',
+            error_message: apiError.message,
+            termination_reason: apiError.message,
+            last_user_input: normalizedInput,
+            preview_phase: 'failed',
+            deployment_status: 'FAILED',
+            conversation_messages: failedConversationMessages,
+          }),
+        }
+      })
+      useExecutionStore.getState().finishExecution()
       notify.error(apiError.message)
       return null
+    }
+  },
+
+  async stopCurrentExecution(): Promise<void> {
+    const store = useExecutionStore.getState()
+    const executionId = store.current_execution_id
+
+    if (store.is_execution_starting && executionId === null) {
+      startExecutionController?.abort()
+      startExecutionController = null
+      useExecutionStore.getState().markExecutionStoppedByUser()
+      notify.info(STOPPED_BY_USER_MESSAGE)
+      return
+    }
+
+    if (executionId === null || (store.status !== 'PENDING' && store.status !== 'RUNNING')) {
+      return
+    }
+
+    useExecutionStore.getState().markExecutionStoppedByUser()
+    notify.info(STOPPED_BY_USER_MESSAGE)
+
+    try {
+      await apiClient.request(`/executions/${executionId}/stop`, {
+        method: 'POST',
+        authMode: 'required',
+      })
+    } catch (error) {
+      notify.error(normalizeApiError(error).message)
     }
   },
 

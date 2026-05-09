@@ -51,6 +51,8 @@ class AgentService:
             runtime_config={
                 "temperature": runtime_config.get("temperature", 0.7),
                 "max_tokens": runtime_config.get("max_tokens"),
+                "context_window": runtime_config.get("context_window"),
+                "reserved_completion_tokens": runtime_config.get("reserved_completion_tokens"),
             },
             capability_flags={
                 "supports_tools": bool(capability_flags.get("supports_tools", True)),
@@ -101,10 +103,7 @@ class AgentService:
         agents = rows.scalars().all()
         normalized: List[AgentRead] = []
         for agent in agents:
-            mapped = AgentService._to_agent_read(agent)
-            if mapped.archived:
-                continue
-            normalized.append(mapped)
+            normalized.append(AgentService._to_agent_read(agent))
         return normalized
 
     @staticmethod

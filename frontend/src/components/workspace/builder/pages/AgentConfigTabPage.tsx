@@ -2,8 +2,16 @@ import { Bot, CheckCircle2, CircleAlert, Eye, EyeOff, MessageSquareText, Plus, S
 import { useMemo, useState } from 'react'
 
 import type { AgentDetail } from '../../../../features/agent/agent.adapter'
+import {
+  clearAgentConfigDraft,
+  ensureCreateAgentConfigDraft,
+  getEmptyAgentConfigDraft,
+  readAgentConfigDraft,
+  saveAgentConfigDraft,
+} from '../../../../features/agent/agentConfigDraft'
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { notify } from '../../../../features/notifications/notify'
+import { BUILTIN_TOOL_OPTIONS } from '../../../../features/tools/tools.catalog'
 import { useBuilderTabsStore } from '../../../../features/ui-shell/builderTabs.store'
 import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
@@ -11,8 +19,7 @@ import { Input } from '../../../ui/Input'
 
 type ConfigMode = 'create' | 'edit'
 
-const DEFAULT_OPENING_STATEMENT = '你好，我是你的智能体。你可以直接告诉我想测试的问题或任务。'
-const AGENT_CONFIG_DRAFT_STORAGE_KEY = 'AGENTFORGE_AGENT_CONFIG_DRAFT_V1'
+const DEFAULT_AGENT_TOOL_IDS = BUILTIN_TOOL_OPTIONS.map((tool) => tool.id)
 
 interface AgentConfigFormState {
   name: string
@@ -24,73 +31,6 @@ interface AgentConfigFormState {
   llm_model_name: string
   temperature: string
   max_tokens: string
-}
-
-const EMPTY_FORM: AgentConfigFormState = {
-  name: '',
-  avatar_url: '',
-  description: '',
-  opening_statement: DEFAULT_OPENING_STATEMENT,
-  llm_provider_url: '',
-  llm_api_key: '',
-  llm_model_name: '',
-  temperature: '0.7',
-  max_tokens: '1000',
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function readDraftText(raw: Record<string, unknown>, key: keyof AgentConfigFormState, fallback: string): string {
-  const value = raw[key]
-  return typeof value === 'string' ? value : fallback
-}
-
-function readLocalConfigDraft(agentId: string | null = null): AgentConfigFormState | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const raw = window.localStorage.getItem(AGENT_CONFIG_DRAFT_STORAGE_KEY)
-  if (raw === null) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    if (!isRecord(parsed)) {
-      return null
-    }
-    const draftAgentId = typeof parsed.__agent_id === 'string' ? parsed.__agent_id : null
-    if (agentId === null && draftAgentId !== null) {
-      return null
-    }
-    if (agentId !== null && draftAgentId !== agentId) {
-      return null
-    }
-    return {
-      name: readDraftText(parsed, 'name', EMPTY_FORM.name),
-      avatar_url: readDraftText(parsed, 'avatar_url', EMPTY_FORM.avatar_url),
-      description: readDraftText(parsed, 'description', EMPTY_FORM.description),
-      opening_statement: readDraftText(parsed, 'opening_statement', EMPTY_FORM.opening_statement),
-      llm_provider_url: readDraftText(parsed, 'llm_provider_url', EMPTY_FORM.llm_provider_url),
-      llm_api_key: readDraftText(parsed, 'llm_api_key', EMPTY_FORM.llm_api_key),
-      llm_model_name: readDraftText(parsed, 'llm_model_name', EMPTY_FORM.llm_model_name),
-      temperature: readDraftText(parsed, 'temperature', EMPTY_FORM.temperature),
-      max_tokens: readDraftText(parsed, 'max_tokens', EMPTY_FORM.max_tokens),
-    }
-  } catch {
-    return null
-  }
-}
-
-function saveLocalConfigDraft(form: AgentConfigFormState, agentId: string | null = null): void {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(AGENT_CONFIG_DRAFT_STORAGE_KEY, JSON.stringify({ ...form, __agent_id: agentId }))
 }
 
 function validateEndpoint(value: string): string | null {
@@ -191,7 +131,7 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
     if (initialAgent !== null) {
       return formFromAgent(initialAgent)
     }
-    return readLocalConfigDraft() ?? { ...EMPTY_FORM }
+    return readAgentConfigDraft() ?? getEmptyAgentConfigDraft()
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -224,7 +164,7 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
     setForm((prev) => {
       const next = { ...prev, [key]: value }
       if (configMode === 'create') {
-        saveLocalConfigDraft(next, null)
+        saveAgentConfigDraft(next, null)
       }
       return next
     })
@@ -233,10 +173,10 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
   }
 
   const startCreate = () => {
-    const draft = readLocalConfigDraft()
+    const draft = ensureCreateAgentConfigDraft()
     setConfigMode('create')
     setEditingAgentId(null)
-    setForm(draft ?? { ...EMPTY_FORM })
+    setForm(draft)
     setSubmitError(null)
     setShowApiKey(false)
     openTab({ type: 'agent_config', params: { mode: 'create' }, status: 'idle', message: '准备创建智能体' })
@@ -284,10 +224,11 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
             temperature: Number(form.temperature || '0.7'),
             max_tokens: form.max_tokens.trim().length > 0 ? Number(form.max_tokens) : null,
           },
-          capability_flags: { supports_tools: false },
-          tools: [],
+          capability_flags: { supports_tools: true },
+          tools: DEFAULT_AGENT_TOOL_IDS,
           constraints: { max_steps: 6 },
         })
+        clearAgentConfigDraft()
         const created = useAgentStore.getState().current_agent_detail
         if (created !== null) {
           setConfigMode('edit')

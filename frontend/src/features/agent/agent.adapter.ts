@@ -4,6 +4,8 @@ import { ApiError } from '../../lib/api/error'
 export interface AgentRuntimeConfig {
   temperature: number
   max_tokens: number | null
+  context_window?: number | null
+  reserved_completion_tokens?: number | null
 }
 
 export interface AgentCapabilityFlags {
@@ -102,9 +104,19 @@ function mapAgentRuntimeConfig(raw: unknown): AgentRuntimeConfig {
   const config = isRecord(raw) ? raw : {}
   const temperature = typeof config.temperature === 'number' && !Number.isNaN(config.temperature) ? config.temperature : 0.7
   const maxTokensRaw = config.max_tokens
+  const contextWindowRaw = config.context_window
+  const reservedCompletionTokensRaw = config.reserved_completion_tokens
   return {
     temperature,
     max_tokens: maxTokensRaw === null || maxTokensRaw === undefined ? null : asNumber(maxTokensRaw, 'runtime_config.max_tokens'),
+    context_window:
+      contextWindowRaw === null || contextWindowRaw === undefined
+        ? null
+        : asNumber(contextWindowRaw, 'runtime_config.context_window'),
+    reserved_completion_tokens:
+      reservedCompletionTokensRaw === null || reservedCompletionTokensRaw === undefined
+        ? null
+        : asNumber(reservedCompletionTokensRaw, 'runtime_config.reserved_completion_tokens'),
   }
 }
 

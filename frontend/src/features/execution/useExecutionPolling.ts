@@ -6,7 +6,7 @@ import { useAgentStore } from '../agent/agent.store'
 import { executionAdapter } from './execution.adapter'
 import { useExecutionStore } from './execution.store'
 
-const POLLING_INTERVAL_MS = 1000
+const POLLING_INTERVAL_MS = 250
 const MAX_CONSECUTIVE_FAILURES = 3
 
 export function useExecutionPolling(execution_id: string | null) {
@@ -43,6 +43,11 @@ export function useExecutionPolling(execution_id: string | null) {
     const poll = async () => {
       const latestExecutionStore = useExecutionStore.getState()
       const latestAgentStore = useAgentStore.getState()
+
+      if (latestExecutionStore.termination_reason === 'USER_STOPPED') {
+        stopPolling(true)
+        return
+      }
 
       if (latestExecutionStore.current_execution_id !== execution_id) {
         stopPolling()

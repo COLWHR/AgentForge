@@ -1,4 +1,8 @@
+import { Check, Copy } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { ThoughtCollapsibleBlock } from '../copilot/timeline/ThoughtCollapsibleBlock'
 import { useWorkspaceTabsStore } from '../../../features/ui-shell/workspaceTabs.store'
@@ -8,6 +12,7 @@ import { CodeBlockCard } from '../chat/CodeBlockCard'
 interface RichContentRendererProps {
   content: string
   compact?: boolean
+  showTextCopy?: boolean
 }
 
 type RichBlock =
@@ -72,92 +77,127 @@ function titleFromUrl(url: string): string {
   }
 }
 
-function InlineText({ text }: { text: string }) {
-  const selectBrowserLink = useWorkspaceTabsStore((state) => state.selectBrowserLink)
-  const nodes: ReactNode[] = []
-  let index = 0
-
-  const pushText = (value: string) => {
-    if (value.length > 0) {
-      nodes.push(value)
-    }
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator === 'undefined' || text.trim().length === 0) {
+    return false
   }
-
-  while (index < text.length) {
-    const rest = text.slice(index)
-    const markdownLink = rest.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/)
-    if (markdownLink) {
-      const label = markdownLink[1]
-      const url = normalizeUrl(markdownLink[2])
-      nodes.push(
-        <button
-          key={`link-${index}`}
-          type="button"
-          className="font-medium text-primary underline-offset-2 hover:underline"
-          onClick={() => selectBrowserLink({ url, title: label, source: 'final_answer' })}
-        >
-          {label}
-        </button>,
-      )
-      index += markdownLink[0].length
-      continue
-    }
-
-    const urlMatch = rest.match(/^https?:\/\/[^\s)]+/)
-    if (urlMatch) {
-      const url = normalizeUrl(urlMatch[0])
-      nodes.push(
-        <button
-          key={`url-${index}`}
-          type="button"
-          className="font-medium text-primary underline-offset-2 hover:underline"
-          onClick={() => selectBrowserLink({ url, title: titleFromUrl(url), source: 'final_answer' })}
-        >
-          {url}
-        </button>,
-      )
-      index += urlMatch[0].length
-      continue
-    }
-
-    if (rest.startsWith('**')) {
-      const close = rest.indexOf('**', 2)
-      if (close > 2) {
-        nodes.push(
-          <strong key={`strong-${index}`} className="font-semibold text-text-main">
-            {rest.slice(2, close)}
-          </strong>,
-        )
-        index += close + 2
-        continue
-      }
-    }
-
-    if (rest.startsWith('`')) {
-      const close = rest.indexOf('`', 1)
-      if (close > 1) {
-        nodes.push(
-          <code key={`code-${index}`} className="rounded-token-sm bg-bg-soft px-1 py-0.5 font-mono text-[0.92em] text-text-main">
-            {rest.slice(1, close)}
-          </code>,
-        )
-        index += close + 1
-        continue
-      }
-    }
-
-    const nextSpecials = [rest.indexOf('['), rest.indexOf('http://'), rest.indexOf('https://'), rest.indexOf('**'), rest.indexOf('`')]
-      .filter((position) => position > 0)
-      .sort((a, b) => a - b)
-    const nextIndex = nextSpecials[0] ?? 1
-    pushText(rest.slice(0, nextIndex))
-    index += nextIndex
-  }
-
-  return <>{nodes}</>
+  await navigator.clipboard.writeText(text)
+  return true
 }
 
-export function RichContentRenderer({ content, compact = false }: RichContentRendererProps) {
+function CopyActionButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    const success = await copyToClipboard(text)
+    if (!success) {
+      return
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
+
+  return (
+    <button
+      type="button"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-token-md border border-border bg-surface text-text-sub transition-colors duration-200 hover:bg-bg-soft hover:text-text-main"
+      aria-label={label}
+      title={label}
+      onClick={() => void handleCopy()}
+    >
+      {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+    </button>
+  )
+}
+
+function MarkdownLink({ href, children }: { href?: string; children: ReactNode }) {
+  const selectBrowserLink = useWorkspaceTabsStore((state) => state.selectBrowserLink)
+
+  if (!href) {
+    return <>{children}</>
+  }
+
+  const url = normalizeUrl(href)
+  const isBrowserUrl = /^https?:\/\//i.test(url)
+  if (!isBrowserUrl) {
+    return <span className="font-medium text-primary">{children}</span>
+  }
+
+  return (
+    <button
+      type="button"
+      className="font-medium text-primary underline-offset-2 hover:underline"
+      onClick={() => selectBrowserLink({ url, title: titleFromUrl(url), source: 'final_answer' })}
+    >
+      {children}
+    </button>
+  )
+}
+
+function MarkdownContent({ text, compact, showTextCopy }: { text: string; compact: boolean; showTextCopy: boolean }) {
+  const addTerminalCommand = useWorkspaceTabsStore((state) => state.addTerminalCommand)
+  const components: Components = {
+    h1: ({ children }) => <h1 className={cn('mt-3 text-xl font-semibold leading-snug text-text-main first:mt-0', compact && 'text-base')}>{children}</h1>,
+    h2: ({ children }) => <h2 className={cn('mt-3 text-lg font-semibold leading-snug text-text-main first:mt-0', compact && 'text-sm')}>{children}</h2>,
+    h3: ({ children }) => <h3 className="mt-3 text-base font-semibold leading-snug text-text-main first:mt-0">{children}</h3>,
+    p: ({ children }) => <p className="my-2 break-words first:mt-0 last:mb-0">{children}</p>,
+    strong: ({ children }) => <strong className="font-semibold text-text-main">{children}</strong>,
+    em: ({ children }) => <em className="italic text-text-main">{children}</em>,
+    del: ({ children }) => <del className="text-text-muted">{children}</del>,
+    a: ({ href, children }) => <MarkdownLink href={href}>{children}</MarkdownLink>,
+    ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+    ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+    li: ({ children }) => <li className="pl-1 marker:text-text-muted">{children}</li>,
+    input: ({ type, checked }) =>
+      type === 'checkbox' ? (
+        <input type="checkbox" checked={checked} readOnly className="mr-2 h-3.5 w-3.5 rounded border-border align-[-2px] accent-primary" />
+      ) : null,
+    blockquote: ({ children }) => <blockquote className="my-3 border-l-4 border-border pl-3 text-text-sub">{children}</blockquote>,
+    hr: () => <hr className="my-4 border-border" />,
+    code: ({ className, children }) => {
+      const code = String(children).replace(/\n$/, '')
+      const language = /language-(\w+)/.exec(className ?? '')?.[1]
+      if (code.includes('\n')) {
+        const command = isCommandBlock(language ?? null, code)
+        return (
+          <CodeBlockCard
+            code={code}
+            language={language}
+            kind={command ? 'command' : 'code'}
+            title={command ? '命令' : language ?? '代码'}
+            onAddCommand={command ? () => addTerminalCommand({ command: code, title: language ?? '命令', source: 'final_answer' }) : undefined}
+          />
+        )
+      }
+      return <code className="rounded-token-sm bg-bg-soft px-1 py-0.5 font-mono text-[0.92em] text-text-main">{children}</code>
+    },
+    table: ({ children }) => (
+      <div className="my-3 max-w-full overflow-x-auto rounded-token-md border border-border">
+        <table className="min-w-full border-collapse bg-surface text-left text-xs">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead className="bg-bg-soft text-text-main">{children}</thead>,
+    tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
+    tr: ({ children }) => <tr className="divide-x divide-border align-top">{children}</tr>,
+    th: ({ children }) => <th className="whitespace-nowrap px-3 py-2 font-semibold text-text-main">{children}</th>,
+    td: ({ children }) => <td className="min-w-32 px-3 py-2 leading-relaxed text-text-sub">{children}</td>,
+  }
+
+  return (
+    <div className="space-y-1">
+      {showTextCopy ? (
+        <div className="flex justify-end">
+          <CopyActionButton text={text.trim()} label="复制正文" />
+        </div>
+      ) : null}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {text.trim()}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+export function RichContentRenderer({ content, compact = false, showTextCopy = true }: RichContentRendererProps) {
   const addTerminalCommand = useWorkspaceTabsStore((state) => state.addTerminalCommand)
   const blocks = splitBlocks(content)
 
@@ -189,15 +229,7 @@ export function RichContentRenderer({ content, compact = false }: RichContentRen
           )
         }
 
-        return block.text
-          .trim()
-          .split(/\n{2,}/)
-          .filter((paragraph) => paragraph.trim().length > 0)
-          .map((paragraph, paragraphIndex) => (
-            <p key={`text-${index}-${paragraphIndex}`} className="whitespace-pre-wrap break-words">
-              <InlineText text={paragraph.trim()} />
-            </p>
-          ))
+        return <MarkdownContent key={`text-${index}`} text={block.text} compact={compact} showTextCopy={showTextCopy} />
       })}
     </div>
   )

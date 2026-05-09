@@ -21,5 +21,31 @@ DB_URL: "sqlite+aiosqlite:///./agentforge_preview.db"
 # Redis Configuration (Defaults)
 REDIS_URL: "redis://localhost:6379/0"
 
+# SMTP Configuration (Defaults)
+SMTP_HOST: "smtp.qq.com"
+SMTP_PORT: 587
+SMTP_USERNAME: "2049252009@qq.com"
+SMTP_PASSWORD: "hhxublywftttcagf"
+SMTP_FROM_EMAIL: "2049252009@qq.com"
+SMTP_FROM_NAME: "EyesCloud"
+SMTP_USE_TLS: true
+SMTP_USE_SSL: false
+SMTP_TIMEOUT_SECONDS: 5
+EMAIL_DELIVERY_MODE: "smtp"
+
+# Avatar Storage Configuration
+AVATAR_STORAGE_PROVIDER: "local"
+AVATAR_PUBLIC_BASE_URL: ""
+OBJECT_STORAGE_ENDPOINT: ""
+OBJECT_STORAGE_REGION: ""
+OBJECT_STORAGE_BUCKET: ""
+OBJECT_STORAGE_ACCESS_KEY: ""
+OBJECT_STORAGE_SECRET_KEY: ""
+OBJECT_STORAGE_PUBLIC_BASE_URL: ""
+OBJECT_STORAGE_USE_SSL: true
+OBJECT_STORAGE_VERIFY_TLS: true
+OBJECT_STORAGE_FORCE_PATH_STYLE: true
+OBJECT_STORAGE_PUBLIC_READ: true
+
 # Model Gateway Settings (Placeholders)
 MODEL_API_KEY: "PLACEHOLDER_KEY"

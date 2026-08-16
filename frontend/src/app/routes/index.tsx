@@ -9,6 +9,7 @@ import {
   MarketplacePage,
   NotFoundPage,
   ProfilePage,
+  PublicAgentPage,
   RegisterPage,
   ResetPasswordPage,
   RunsPage,
@@ -39,6 +40,10 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: routeElement(<ResetPasswordPage />),
+  },
+  {
+    path: '/p/:slug',
+    element: routeElement(<PublicAgentPage />),
   },
   {
     path: '/',

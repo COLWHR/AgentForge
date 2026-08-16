@@ -415,6 +415,57 @@ class AgentRead(BaseModel):
 class AgentCreateResponse(BaseModel):
     id: UUID4
 
+
+class PublishedAgentUpsertRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    slug: Optional[str] = None
+    status: Optional[Literal["ACTIVE", "DISABLED"]] = None
+
+    @field_validator("title", "description", "slug", "status")
+    @classmethod
+    def validate_optional_text(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        value = v.strip()
+        if not value:
+            raise ValueError("field cannot be empty")
+        return value
+
+
+class PublishedAgentRead(BaseModel):
+    id: UUID4
+    agent_id: UUID4
+    team_id: str
+    slug: str
+    title: str
+    description: str
+    status: Literal["ACTIVE", "DISABLED"]
+    public_url: str
+    created_at: str
+    updated_at: str
+
+
+class PublicAgentProfile(BaseModel):
+    slug: str
+    title: str
+    description: str
+    opening_statement: str
+    avatar_url: Optional[str] = None
+
+
+class PublicExecuteAgentRequest(BaseModel):
+    input: str
+    conversation_history: List["ConversationHistoryMessage"] = Field(default_factory=list)
+
+    @field_validator("input")
+    @classmethod
+    def validate_input(cls, v: str) -> str:
+        value = v.strip()
+        if not value:
+            raise ValueError("input cannot be empty")
+        return value
+
 class KnowledgeDocumentCreateRequest(BaseModel):
     title: str
     content: str

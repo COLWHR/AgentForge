@@ -26,6 +26,8 @@ from backend.models.schemas import (
     ExecuteAgentRequest,
     ExecuteAgentResponse,
     ExecutionErrorModel,
+    PublishedAgentRead,
+    PublishedAgentUpsertRequest,
     TokenUsage,
 )
 from backend.models.constants import ExecutionState, ExecutionStatus, ResponseCode, TerminationReason
@@ -33,6 +35,7 @@ from backend.models.constants import ExecutionState, ExecutionStatus, ResponseCo
 from backend.api.dependencies import get_current_user
 from backend.core.exceptions import NotFoundException, QuotaException
 from backend.core.exceptions import ValidationException
+from backend.services.published_agent_service import published_agent_service
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -150,6 +153,70 @@ async def delete_agent(
     if not agent:
         raise NotFoundException(f"Agent with ID {id} not found")
     return BaseResponse.success(data=agent, message="Deleted successfully")
+
+
+@router.get("/{id}/publish", response_model=BaseResponse[PublishedAgentRead])
+async def get_agent_publication(
+    id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_current_user),
+):
+    await authorization_service.ensure_agent_ownership(auth, id, operation="read_publication")
+    publication = await published_agent_service.get_by_agent(db, id, uuid.UUID(auth.team_id))
+    if publication is None:
+        raise NotFoundException(f"Publication for agent {id} not found")
+    return BaseResponse.success(data=publication, message="OK")
+
+
+@router.post("/{id}/publish", response_model=BaseResponse[PublishedAgentRead])
+async def publish_agent(
+    id: uuid.UUID,
+    payload: PublishedAgentUpsertRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_current_user),
+):
+    agent = await AgentService.get_agent(db, id)
+    if not agent:
+        raise NotFoundException(f"Agent with ID {id} not found")
+    await authorization_service.ensure_agent_ownership(auth, id, operation="publish")
+    publication = await published_agent_service.upsert(
+        db,
+        agent=agent,
+        team_id=uuid.UUID(auth.team_id),
+        payload=payload,
+    )
+    return BaseResponse.success(data=publication, message="Published successfully")
+
+
+@router.patch("/{id}/publish", response_model=BaseResponse[PublishedAgentRead])
+async def update_agent_publication(
+    id: uuid.UUID,
+    payload: PublishedAgentUpsertRequest,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_current_user),
+):
+    agent = await AgentService.get_agent(db, id)
+    if not agent:
+        raise NotFoundException(f"Agent with ID {id} not found")
+    await authorization_service.ensure_agent_ownership(auth, id, operation="update_publication")
+    publication = await published_agent_service.upsert(
+        db,
+        agent=agent,
+        team_id=uuid.UUID(auth.team_id),
+        payload=payload,
+    )
+    return BaseResponse.success(data=publication, message="Updated successfully")
+
+
+@router.delete("/{id}/publish", response_model=BaseResponse[PublishedAgentRead])
+async def disable_agent_publication(
+    id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(get_current_user),
+):
+    await authorization_service.ensure_agent_ownership(auth, id, operation="disable_publication")
+    publication = await published_agent_service.disable(db, agent_id=id, team_id=uuid.UUID(auth.team_id))
+    return BaseResponse.success(data=publication, message="Disabled successfully")
 
 @router.post("/{id}/execute", response_model=BaseResponse[ExecuteAgentResponse])
 async def execute_agent(

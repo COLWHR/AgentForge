@@ -454,6 +454,10 @@ class PublicAgentProfile(BaseModel):
     avatar_url: Optional[str] = None
 
 
+class PublicAgentSquareItem(PublicAgentProfile):
+    pass
+
+
 class PublicExecuteAgentRequest(BaseModel):
     input: str
     conversation_history: List["ConversationHistoryMessage"] = Field(default_factory=list)

@@ -136,7 +136,7 @@ export function UserSummary() {
                   className="flex w-full items-center gap-3 rounded-token-md px-3 py-2.5 text-left text-sm text-text-sub transition-all duration-200 hover:bg-bg-soft hover:text-text-main"
                   onClick={() => {
                     setIsMenuOpen(false)
-                    navigate('/profile')
+                    navigate('/develop/profile')
                   }}
                 >
                   <User size={16} />

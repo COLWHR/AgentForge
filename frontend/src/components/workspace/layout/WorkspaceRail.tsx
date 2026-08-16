@@ -88,8 +88,8 @@ export function WorkspaceRail() {
   )
 
   const goToAgentsWorkspace = () => {
-    if (location.pathname !== '/agents') {
-      navigate('/agents')
+    if (location.pathname !== '/develop/agents') {
+      navigate('/develop/agents')
     }
   }
 

@@ -2,6 +2,8 @@ import { lazy } from 'react'
 
 export const AppShell = lazy(() => import('../../layouts/AppShell').then((module) => ({ default: module.AppShell })))
 export const AgentsPage = lazy(() => import('../../pages/AgentsPage').then((module) => ({ default: module.AgentsPage })))
+export const AgentSquarePage = lazy(() => import('../../pages/AgentSquarePage').then((module) => ({ default: module.AgentSquarePage })))
+export const HomePage = lazy(() => import('../../pages/HomePage').then((module) => ({ default: module.HomePage })))
 export const RunsPage = lazy(() => import('../../pages/RunsPage').then((module) => ({ default: module.RunsPage })))
 export const MarketplacePage = lazy(() => import('../../pages/MarketplacePage').then((module) => ({ default: module.MarketplacePage })))
 export const LogsPage = lazy(() => import('../../pages/LogsPage').then((module) => ({ default: module.LogsPage })))

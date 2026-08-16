@@ -23,11 +23,11 @@ def _auth_headers(user_id: str = "user-integration") -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_agent(client: TestClient) -> str:
+def _create_agent(client: TestClient, name: str = "Public Link Agent") -> str:
     response = client.post(
         "/agents",
         json={
-            "name": "Public Link Agent",
+            "name": name,
             "description": "Answers public visitors with a concise product voice.",
             "opening_statement": "你好，我可以公开接待访客。",
             "avatar_url": "https://example.com/avatar.png",
@@ -43,6 +43,33 @@ def _create_agent(client: TestClient) -> str:
     )
     assert response.status_code == 200
     return response.json()["data"]["id"]
+
+
+def test_public_agent_square_lists_only_active_publications(client: TestClient):
+    active_agent_id = _create_agent(client, name="Active Square Agent")
+    disabled_agent_id = _create_agent(client, name="Disabled Square Agent")
+
+    client.post(
+        f"/agents/{active_agent_id}/publish",
+        json={"slug": "active-square-agent", "title": "Active Square Agent"},
+        headers=_auth_headers(),
+    )
+    client.post(
+        f"/agents/{disabled_agent_id}/publish",
+        json={"slug": "disabled-square-agent", "title": "Disabled Square Agent"},
+        headers=_auth_headers(),
+    )
+    client.delete(f"/agents/{disabled_agent_id}/publish", headers=_auth_headers())
+
+    response = client.get("/public/agents")
+
+    assert response.status_code == 200
+    records = response.json()["data"]
+    assert [record["slug"] for record in records] == ["active-square-agent"]
+    assert records[0]["title"] == "Active Square Agent"
+    assert records[0]["opening_statement"] == "你好，我可以公开接待访客。"
+    assert "agent_id" not in records[0]
+    assert "team_id" not in records[0]
 
 
 def test_publish_agent_creates_public_profile_and_can_be_disabled(client: TestClient):

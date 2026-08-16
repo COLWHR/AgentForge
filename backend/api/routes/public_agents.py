@@ -14,6 +14,7 @@ from backend.models.schemas import (
     BaseResponse,
     ExecuteAgentResponse,
     ExecutionErrorModel,
+    PublicAgentSquareItem,
     PublicAgentProfile,
     PublicExecuteAgentRequest,
     TokenUsage,
@@ -27,6 +28,26 @@ from backend.services.published_agent_service import published_agent_service
 
 
 router = APIRouter(prefix="/public/agents", tags=["Public Agents"])
+
+
+@router.get("", response_model=BaseResponse[list[PublicAgentSquareItem]])
+async def list_public_agents(db: AsyncSession = Depends(get_db)):
+    records = await published_agent_service.list_active_records(db)
+    items: list[PublicAgentSquareItem] = []
+    for publication in records:
+        agent = await AgentService.get_agent(db, publication.agent_id)
+        if agent is None or not agent.is_available:
+            continue
+        items.append(
+            PublicAgentSquareItem(
+                slug=publication.slug,
+                title=publication.title,
+                description=publication.description,
+                opening_statement=agent.opening_statement,
+                avatar_url=agent.avatar_url,
+            )
+        )
+    return BaseResponse.success(data=items, message="OK")
 
 
 @router.get("/{slug}", response_model=BaseResponse[PublicAgentProfile])

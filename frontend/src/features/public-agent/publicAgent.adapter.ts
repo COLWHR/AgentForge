@@ -29,6 +29,8 @@ export interface PublicAgentProfile {
   avatar_url: string | null
 }
 
+export type PublicAgentSquareItem = PublicAgentProfile
+
 export interface PublicConversationMessage {
   role: 'user' | 'assistant'
   content: string
@@ -177,6 +179,17 @@ export const publicAgentAdapter = {
       authMode: 'none',
     })
     return mapPublicProfile(result.data)
+  },
+
+  async fetchPublicSquare(): Promise<PublicAgentSquareItem[]> {
+    const result = await apiClient.request<unknown>('/public/agents', {
+      method: 'GET',
+      authMode: 'none',
+    })
+    if (!Array.isArray(result.data)) {
+      throw new ApiError({ code: 'INVALID_RESPONSE_FORMAT', message: '智能体广场响应无效', raw: result.data })
+    }
+    return result.data.map((item) => mapPublicProfile(item))
   },
 
   async startPublicExecution(slug: string, input: string, conversationHistory: PublicConversationMessage[]): Promise<PublicExecutionStart> {

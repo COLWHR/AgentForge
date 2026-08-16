@@ -65,6 +65,15 @@ class PublishedAgentService:
         return record
 
     @staticmethod
+    async def list_active_records(db: AsyncSession) -> list[PublishedAgent]:
+        result = await db.execute(
+            select(PublishedAgent)
+            .where(PublishedAgent.status == "ACTIVE")
+            .order_by(PublishedAgent.updated_at.desc(), PublishedAgent.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
     async def get_public_profile(db: AsyncSession, slug: str, agent: AgentRead) -> PublicAgentProfile:
         record = await PublishedAgentService.get_active_record_by_slug(db, slug)
         return PublicAgentProfile(

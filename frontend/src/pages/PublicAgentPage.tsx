@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
+import { RichContentRenderer } from '../components/workspace/rich-content/RichContentRenderer'
 import { normalizeApiError } from '../lib/api/error'
 import {
   publicAgentAdapter,
@@ -31,6 +32,14 @@ function buildHistory(messages: PublicChatMessage[]): PublicConversationMessage[
     .filter((message) => message.status !== 'PENDING' && message.content.trim().length > 0)
     .map((message) => ({ role: message.role, content: message.content }))
     .slice(-20)
+}
+
+function renderPublicMessageContent(message: PublicChatMessage) {
+  if (message.role === 'assistant' && message.status === 'SUCCEEDED') {
+    return <RichContentRenderer content={message.content} showTextCopy={false} />
+  }
+
+  return <span className="whitespace-pre-wrap break-words">{message.content}</span>
 }
 
 export function PublicAgentPage() {
@@ -185,7 +194,7 @@ export function PublicAgentPage() {
                       {message.content}
                     </span>
                   ) : (
-                    message.content
+                    renderPublicMessageContent(message)
                   )}
                 </div>
               </div>

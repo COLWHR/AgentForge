@@ -15,6 +15,7 @@ from backend.api.routes.auth import router as auth_router
 from backend.api.routes.executions import router as executions_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.knowledge import router as knowledge_router
+from backend.api.routes.public_agents import router as public_agents_router
 from backend.api.routes.sandbox import router as sandbox_router
 from backend.api.routes.users import router as users_router
 from backend.api.routes.teams import router as teams_router
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router, prefix="", tags=["Knowledge"])
     app.include_router(executions_router, prefix="", tags=["Executions"])
     app.include_router(teams_router, prefix="", tags=["Teams"])
+    app.include_router(public_agents_router, prefix="", tags=["Public Agents"])
     app.include_router(create_marketplace_router(), prefix="", tags=["Plugin Marketplace"])
 
     return app

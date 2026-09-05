@@ -28,6 +28,23 @@ class AgentOwnership(Base):
     def __repr__(self) -> str:
         return f"<AgentOwnership(agent_id={self.agent_id}, team_id={self.team_id})>"
 
+
+class PublishedAgent(Base):
+    __tablename__ = "published_agents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, unique=True, index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<PublishedAgent(agent_id={self.agent_id}, slug={self.slug}, status={self.status})>"
+
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
 

@@ -88,8 +88,8 @@ export function WorkspaceRail() {
   )
 
   const goToAgentsWorkspace = () => {
-    if (location.pathname !== '/agents') {
-      navigate('/agents')
+    if (location.pathname !== '/develop/agents') {
+      navigate('/develop/agents')
     }
   }
 
@@ -174,6 +174,12 @@ export function WorkspaceRail() {
       status: mode === 'edit' ? 'ready' : 'idle',
       message: mode === 'edit' ? '正在编辑智能体' : '准备创建智能体',
     })
+  }
+
+  const selectAgentForEditing = (agentId: string) => {
+    void selectAgent(agentId)
+    openAgentConfigTab('edit', agentId)
+    goToAgentsWorkspace()
   }
 
   const togglePinned = (agentId: string) => {
@@ -341,8 +347,7 @@ export function WorkspaceRail() {
                           requestDeleteDamagedAgent(agent.id)
                           return
                         }
-                        void selectAgent(agent.id)
-                        goToAgentsWorkspace()
+                        selectAgentForEditing(agent.id)
                       }}
                     >
                       <div className="mt-0.5 shrink-0 text-text-muted"><MessageSquare size={16} /></div>

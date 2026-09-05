@@ -1,5 +1,5 @@
-import { Bot, CheckCircle2, CircleAlert, Eye, EyeOff, MessageSquareText, Plus, Save, ScrollText, Wrench } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Bot, CheckCircle2, CircleAlert, Copy, ExternalLink, Eye, EyeOff, Link2, MessageSquareText, Plus, Power, Save, ScrollText, Wrench } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AgentDetail } from '../../../../features/agent/agent.adapter'
 import {
@@ -11,8 +11,10 @@ import {
 } from '../../../../features/agent/agentConfigDraft'
 import { useAgentStore } from '../../../../features/agent/agent.store'
 import { notify } from '../../../../features/notifications/notify'
+import { publicAgentAdapter, type PublishedAgent } from '../../../../features/public-agent/publicAgent.adapter'
 import { BUILTIN_TOOL_OPTIONS } from '../../../../features/tools/tools.catalog'
 import { useBuilderTabsStore } from '../../../../features/ui-shell/builderTabs.store'
+import { normalizeApiError } from '../../../../lib/api/error'
 import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
 import { Input } from '../../../ui/Input'
@@ -90,6 +92,150 @@ function readMode(params: Record<string, unknown> | null | undefined): ConfigMod
 
 function readAgentId(params: Record<string, unknown> | null | undefined): string | null {
   return typeof params?.agentId === 'string' && params.agentId.trim().length > 0 ? params.agentId : null
+}
+
+function absolutePublicUrl(publication: PublishedAgent): string {
+  if (typeof window === 'undefined') return publication.public_url
+  return `${window.location.origin}${publication.public_url}`
+}
+
+function PublicationPanel({ agent }: { agent: AgentDetail | null }) {
+  const [publication, setPublication] = useState<PublishedAgent | null>(null)
+  const [slug, setSlug] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setPublication(null)
+    setSlug('')
+    setError(null)
+    if (agent === null) return
+
+    setIsLoading(true)
+    publicAgentAdapter
+      .fetchPublication(agent.id)
+      .then((record) => {
+        if (cancelled) return
+        setPublication(record)
+        setSlug(record?.slug ?? '')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err).message)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [agent])
+
+  const publish = async () => {
+    if (agent === null) return
+    setIsSaving(true)
+    setError(null)
+    try {
+      const payload = {
+        title: agent.name,
+        description: agent.description,
+        slug: slug.trim().length > 0 ? slug.trim() : undefined,
+        status: 'ACTIVE' as const,
+      }
+      const next = publication === null
+        ? await publicAgentAdapter.publishAgent(agent.id, payload)
+        : await publicAgentAdapter.updatePublication(agent.id, payload)
+      setPublication(next)
+      setSlug(next.slug)
+      notify.success(publication === null ? '公开链接已生成' : '公开链接已更新')
+    } catch (err) {
+      setError(normalizeApiError(err).message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const disable = async () => {
+    if (agent === null || publication === null) return
+    setIsSaving(true)
+    setError(null)
+    try {
+      const next = await publicAgentAdapter.disablePublication(agent.id)
+      setPublication(next)
+      notify.success('公开链接已停用')
+    } catch (err) {
+      setError(normalizeApiError(err).message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const copyLink = async () => {
+    if (publication === null) return
+    const url = absolutePublicUrl(publication)
+    await navigator.clipboard?.writeText(url)
+    notify.success('公开链接已复制')
+  }
+
+  const openLink = () => {
+    if (publication === null) return
+    window.open(absolutePublicUrl(publication), '_blank', 'noopener,noreferrer')
+  }
+
+  const isActive = publication?.status === 'ACTIVE'
+
+  return (
+    <section className="space-y-3 rounded-token-md border border-border bg-bg p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-text-main">
+          <Link2 size={15} className="text-text-muted" />
+          公开链接
+        </div>
+        <Badge variant={isActive ? 'success' : publication ? 'neutral' : 'info'}>
+          {isLoading ? '读取中' : isActive ? '已发布' : publication ? '已停用' : '未发布'}
+        </Badge>
+      </div>
+
+      {agent === null ? (
+        <p className="text-xs leading-relaxed text-text-muted">保存或选择一个智能体后，可以生成外部可访问的聊天链接。</p>
+      ) : (
+        <>
+          <Input
+            id="public-agent-slug"
+            label="链接标识"
+            placeholder="留空自动生成"
+            value={slug}
+            onChange={(event) => setSlug(event.target.value)}
+            disabled={isLoading || isSaving}
+          />
+          {publication ? (
+            <p className="break-all rounded-token-md border border-border bg-surface px-3 py-2 text-xs text-text-sub">
+              {absolutePublicUrl(publication)}
+            </p>
+          ) : (
+            <p className="text-xs leading-relaxed text-text-muted">发布后访客可通过链接直接和此智能体对话。</p>
+          )}
+          {error ? <p className="text-xs text-red-500">{error}</p> : null}
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="primary" size="sm" leftIcon={isActive ? <Save size={13} /> : <Power size={13} />} onClick={() => void publish()} disabled={isLoading || isSaving}>
+              {isSaving ? '处理中' : isActive ? '更新' : '发布'}
+            </Button>
+            <Button type="button" variant="secondary" size="sm" leftIcon={<Copy size={13} />} onClick={() => void copyLink()} disabled={!publication}>
+              复制
+            </Button>
+            <Button type="button" variant="secondary" size="sm" leftIcon={<ExternalLink size={13} />} onClick={openLink} disabled={!publication}>
+              打开
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => void disable()} disabled={!publication || !isActive || isSaving}>
+              停用
+            </Button>
+          </div>
+        </>
+      )}
+    </section>
+  )
 }
 
 export function AgentConfigTabPage() {
@@ -451,6 +597,8 @@ function AgentConfigEditor({ initialMode, initialAgent }: AgentConfigEditorProps
                 </Button>
               </div>
             </section>
+
+            <PublicationPanel agent={configMode === 'edit' ? editingAgent : null} />
           </aside>
         </div>
       </div>

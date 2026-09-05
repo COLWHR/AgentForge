@@ -239,14 +239,14 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  if (user) return <Navigate to="/agents" replace />
+  if (user) return <Navigate to="/" replace />
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setSubmitting(true)
     try {
       await login(email, password)
-      navigate('/agents', { replace: true })
+      navigate('/', { replace: true })
     } catch (error) {
       notify.error(errorMessage(error))
     } finally {
@@ -403,7 +403,7 @@ export function RegisterPage() {
         display_name: displayName,
         avatar_url: avatarUrl.trim() ? avatarUrl.trim() : null,
       })
-      navigate('/agents', { replace: true })
+      navigate('/', { replace: true })
     } catch (error) {
       notify.error(errorMessage(error))
     } finally {
@@ -636,7 +636,7 @@ export function ProfilePage() {
       navigate(-1)
       return
     }
-    navigate('/agents', { replace: true })
+    navigate('/', { replace: true })
   }
 
   return (

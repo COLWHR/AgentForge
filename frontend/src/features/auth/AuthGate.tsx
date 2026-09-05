@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 
 import { AppShell } from '../../app/routes/lazyRoutes'
@@ -11,7 +12,7 @@ function LoadingShell() {
   )
 }
 
-export function ProtectedLayout() {
+export function ProtectedRoute({ children }: { children: ReactNode }) {
   const status = useAuthStore((state) => state.status)
 
   if (status === 'loading') {
@@ -22,5 +23,13 @@ export function ProtectedLayout() {
     return <Navigate to="/login" replace />
   }
 
-  return <AppShell />
+  return <>{children}</>
+}
+
+export function ProtectedLayout() {
+  return (
+    <ProtectedRoute>
+      <AppShell />
+    </ProtectedRoute>
+  )
 }

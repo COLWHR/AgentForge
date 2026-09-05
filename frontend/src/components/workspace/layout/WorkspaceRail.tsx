@@ -176,6 +176,12 @@ export function WorkspaceRail() {
     })
   }
 
+  const selectAgentForEditing = (agentId: string) => {
+    void selectAgent(agentId)
+    openAgentConfigTab('edit', agentId)
+    goToAgentsWorkspace()
+  }
+
   const togglePinned = (agentId: string) => {
     const next = pinnedAgentIds.includes(agentId)
       ? pinnedAgentIds.filter((id) => id !== agentId)
@@ -341,8 +347,7 @@ export function WorkspaceRail() {
                           requestDeleteDamagedAgent(agent.id)
                           return
                         }
-                        void selectAgent(agent.id)
-                        goToAgentsWorkspace()
+                        selectAgentForEditing(agent.id)
                       }}
                     >
                       <div className="mt-0.5 shrink-0 text-text-muted"><MessageSquare size={16} /></div>

@@ -12,6 +12,7 @@ from backend.core.config import settings
 from backend.core.database import Base
 from backend.core.exceptions import AuthException, FlowException
 from backend.models.orm import EmailVerificationCode, RefreshToken, TeamMember, User, UserCredential
+from backend.models.schemas import AuthContext
 from backend.services.account_service import account_service
 from backend.services.email_service import EmailDeliveryError, email_service
 from backend.services.password_service import password_service
@@ -445,6 +446,51 @@ async def test_complete_registration_login_and_refresh_jwt_v2(monkeypatch):
             assert refreshed.refresh_token != token_pair.refresh_token
             token_record = (await session.execute(select(RefreshToken))).scalars().all()
             assert len(token_record) >= 2
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_session_exposes_platform_admin_flag(monkeypatch):
+    monkeypatch.setattr(settings, "ENV", "dev")
+    monkeypatch.setattr(settings, "EMAIL_DELIVERY_MODE", "local")
+    engine, session_factory = _build_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    try:
+        async with session_factory() as session:
+            _, _, dev_code = await account_service.start_registration(session, email="admin@example.com")
+            registration_token = await account_service.verify_registration(session, email="admin@example.com", code=dev_code or "")
+            pair = await account_service.complete_registration(
+                session,
+                email="admin@example.com",
+                registration_token=registration_token,
+                password="abc123",
+                confirm_password="abc123",
+                display_name="Admin",
+                avatar_url=None,
+            )
+            user = await session.get(User, pair.user.user_id)
+            assert user is not None
+            user.is_platform_admin = True
+            await session.commit()
+
+        async with session_factory() as session:
+            auth = AuthContext(
+                user_id=pair.user.user_id,
+                team_id=pair.user.team_id or "",
+                auth_mode="jwt",
+                request_id="req-test",
+                role=pair.user.role or "member",
+                is_platform_admin=True,
+            )
+            profile = await account_service.get_profile_for_auth(session, auth)
+            assert profile.is_platform_admin is True
+            assert profile.user_id == pair.user.user_id
+            login_pair = await account_service.login(session, email="admin@example.com", password="abc123")
+            payload = jwt.decode(login_pair.access_token, settings.JWT_SECRET, algorithms=["HS256"])
+            assert payload["is_platform_admin"] is True
     finally:
         await engine.dispose()
 

@@ -52,6 +52,10 @@ EMAIL_VERIFICATION_COLUMNS = {
     "invalidated_at": {"sqlite": "DATETIME", "postgresql": "TIMESTAMP WITH TIME ZONE"},
 }
 
+USERS_COLUMNS = {
+    "is_platform_admin": {"sqlite": "BOOLEAN DEFAULT 0", "postgresql": "BOOLEAN DEFAULT false"},
+}
+
 
 async def ensure_knowledge_governance_columns(engine: AsyncEngine) -> None:
     """Add nullable Phase 3 knowledge governance columns for DBs without Alembic."""
@@ -83,6 +87,8 @@ def _ensure_auth_columns_sync(sync_conn) -> None:
     table_names = set(inspector.get_table_names())
     if "email_verification_codes" in table_names:
         _add_missing_columns(sync_conn, inspector, "email_verification_codes", EMAIL_VERIFICATION_COLUMNS, dialect_name)
+    if "users" in table_names:
+        _add_missing_columns(sync_conn, inspector, "users", USERS_COLUMNS, dialect_name)
 
 
 def _add_missing_columns(sync_conn, inspector, table_name: str, columns: dict[str, dict[str, str]], dialect_name: str) -> None:

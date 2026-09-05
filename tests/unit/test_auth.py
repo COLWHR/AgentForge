@@ -53,6 +53,7 @@ async def test_resolve_auth_context_valid_token():
     payload = {
         "user_id": "user1",
         "team_id": "team1",
+        "is_platform_admin": True,
         "exp": datetime.now(timezone.utc) + timedelta(hours=1)
     }
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
@@ -61,6 +62,7 @@ async def test_resolve_auth_context_valid_token():
     assert auth.user_id == "user1"
     assert auth.team_id == "team1"
     assert auth.auth_mode == "jwt"
+    assert auth.is_platform_admin is True
 
 @pytest.mark.asyncio
 async def test_verify_team_permission():

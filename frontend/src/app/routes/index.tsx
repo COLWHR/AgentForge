@@ -4,6 +4,7 @@ import { Navigate, createBrowserRouter } from 'react-router-dom'
 import {
   AgentsPage,
   AgentSquarePage,
+  AdminOverviewPage,
   ForgotPasswordPage,
   HomePage,
   LoginPage,
@@ -15,8 +16,9 @@ import {
   RegisterPage,
   ResetPasswordPage,
   RunsPage,
+  TeamAdminPage,
 } from './lazyRoutes'
-import { ProtectedLayout, ProtectedRoute } from '../../features/auth/AuthGate'
+import { AccessRoute, ProtectedLayout, ProtectedRoute } from '../../features/auth/AuthGate'
 
 function routeElement(element: ReactNode) {
   return (
@@ -52,6 +54,18 @@ export const router = createBrowserRouter([
     element: routeElement(<AgentSquarePage />),
   },
   {
+    path: '/admin',
+    element: <Navigate to="/admin/overview" replace />,
+  },
+  {
+    path: '/admin/overview',
+    element: routeElement(
+      <AccessRoute scope="platform_admin">
+        <AdminOverviewPage />
+      </AccessRoute>,
+    ),
+  },
+  {
     path: '/',
     element: routeElement(<HomePage />),
   },
@@ -80,6 +94,7 @@ export const router = createBrowserRouter([
       { path: 'runs', element: routeElement(<RunsPage />) },
       { path: 'marketplace', element: routeElement(<MarketplacePage />) },
       { path: 'logs', element: routeElement(<LogsPage />) },
+      { path: 'team-admin', element: routeElement(<AccessRoute scope="team_admin"><TeamAdminPage /></AccessRoute>) },
       { path: 'profile', element: routeElement(<ProfilePage />) },
       { path: 'settings', element: <Navigate to="/develop/profile" replace /> },
       { path: '*', element: routeElement(<NotFoundPage />) },

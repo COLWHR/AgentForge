@@ -1,8 +1,9 @@
-import { Check, ChevronLeft, ChevronRight, LogOut, Moon, Palette, Sparkles, Sun, User } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, LogOut, Moon, Palette, Shield, Sparkles, Sun, User, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuthStore } from '../../../features/auth/auth.store'
+import { isPlatformAdmin, isTeamAdmin } from '../../../features/auth/permissions'
 import { type ThemeMode, useThemeStore } from '../../../features/theme/theme.store'
 import { cn } from '../../../lib/cn'
 
@@ -64,6 +65,8 @@ export function UserSummary() {
   }
 
   const activeTheme = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[0]
+  const platformAdmin = isPlatformAdmin(user)
+  const teamAdmin = isTeamAdmin(user)
   const avatarInitials = getAvatarInitials(user.display_name)
 
   const toggleMenu = () => setIsMenuOpen((open) => !open)
@@ -142,6 +145,34 @@ export function UserSummary() {
                   <User size={16} />
                   <span className="flex-1">账户信息</span>
                 </button>
+
+                {teamAdmin ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-token-md px-3 py-2.5 text-left text-sm text-text-sub transition-all duration-200 hover:bg-bg-soft hover:text-text-main"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      navigate('/develop/team-admin')
+                    }}
+                  >
+                    <UsersRound size={16} />
+                    <span className="flex-1">团队管理</span>
+                  </button>
+                ) : null}
+
+                {platformAdmin ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-token-md px-3 py-2.5 text-left text-sm text-text-sub transition-all duration-200 hover:bg-bg-soft hover:text-text-main"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      navigate('/admin/overview')
+                    }}
+                  >
+                    <Shield size={16} />
+                    <span className="flex-1">平台管理</span>
+                  </button>
+                ) : null}
 
                 <button
                   type="button"

@@ -26,6 +26,7 @@ class TokenService:
             "search_id": str(user.search_id),
             "email": user.email,
             "email_verified": bool(user.email_verified),
+            "is_platform_admin": bool(getattr(user, "is_platform_admin", False)),
             "team_id": str(team_member.team_id),
             "role": team_member.role,
             "exp": int(expires_at.timestamp()),
@@ -57,6 +58,7 @@ class TokenService:
                 status=user.status,
                 team_id=str(team_member.team_id),
                 role=team_member.role,
+                is_platform_admin=bool(getattr(user, "is_platform_admin", False)),
             ),
         )
 

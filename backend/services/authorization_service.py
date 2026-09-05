@@ -13,8 +13,33 @@ from plugin_marketplace.db import PMUserExtension
 
 
 class AuthorizationService:
+    def is_platform_admin(self, auth: AuthContext) -> bool:
+        return bool(auth.is_platform_admin)
+
+    def can_access_team(self, auth: AuthContext, target_team_id: str) -> bool:
+        return self.is_platform_admin(auth) or auth.team_id == target_team_id
+
+    def can_view_user(
+        self,
+        auth: AuthContext,
+        target_user_id: str,
+        target_team_id: str | None = None,
+    ) -> bool:
+        if self.is_platform_admin(auth):
+            return True
+        if auth.user_id == target_user_id:
+            return True
+        return target_team_id is not None and auth.team_id == target_team_id
+
+    async def ensure_platform_admin(self, auth: AuthContext) -> None:
+        if self.is_platform_admin(auth):
+            return
+        self._deny("admin", auth, "Platform admin access required")
+
     async def validate_membership(self, auth: AuthContext) -> None:
         if auth.is_dev and auth.auth_mode == "dev_bypass":
+            return
+        if self.is_platform_admin(auth):
             return
         if not auth.user_id or not auth.team_id:
             self._deny("membership", auth, "Missing user_id or team_id")
@@ -33,14 +58,17 @@ class AuthorizationService:
             await self._ensure_user_membership(session, team_uuid, auth.user_id, auth, "membership")
 
     async def ensure_team_scope(self, auth: AuthContext, target_team_id: str, resource_type: str) -> None:
-        if auth.team_id != target_team_id:
-            self._deny(
-                resource_type,
-                auth,
-                f"Cross-team access denied: auth_team={auth.team_id}, target_team={target_team_id}",
-            )
+        if self.can_access_team(auth, target_team_id):
+            return
+        self._deny(
+            resource_type,
+            auth,
+            f"Cross-team access denied: auth_team={auth.team_id}, target_team={target_team_id}",
+        )
 
     async def ensure_agent_ownership(self, auth: AuthContext, agent_id: uuid.UUID, operation: str) -> None:
+        if self.is_platform_admin(auth):
+            return
         async with AsyncSessionLocal() as session:
             ownership_res = await session.execute(
                 select(AgentOwnership).where(AgentOwnership.agent_id == agent_id)
@@ -58,6 +86,8 @@ class AuthorizationService:
                 )
 
     async def ensure_execution_record_ownership(self, auth: AuthContext, execution_id: uuid.UUID) -> None:
+        if self.is_platform_admin(auth):
+            return
         async with AsyncSessionLocal() as session:
             execution_res = await session.execute(
                 select(ExecutionLog).where(ExecutionLog.execution_id == execution_id)
@@ -75,6 +105,8 @@ class AuthorizationService:
                 )
 
     async def ensure_quota_context_ownership(self, auth: AuthContext, team_id: str) -> None:
+        if self.is_platform_admin(auth):
+            return
         async with AsyncSessionLocal() as session:
             try:
                 team_uuid = uuid.UUID(team_id)
@@ -91,6 +123,8 @@ class AuthorizationService:
     async def ensure_extension_installation_scope(
         self, auth: AuthContext, target_user_id: str, extension_id: str
     ) -> None:
+        if self.is_platform_admin(auth):
+            return
         async with AsyncSessionLocal() as session:
             team_uuid = uuid.UUID(auth.team_id)
             await self._ensure_user_membership(
@@ -104,6 +138,8 @@ class AuthorizationService:
     async def ensure_user_extension_ownership(
         self, auth: AuthContext, target_user_id: str, extension_id: str
     ) -> None:
+        if self.is_platform_admin(auth):
+            return
         async with AsyncSessionLocal() as session:
             team_uuid = uuid.UUID(auth.team_id)
             await self._ensure_user_membership(

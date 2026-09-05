@@ -10,6 +10,7 @@ export interface AuthUserProfile {
   status: string
   team_id: string | null
   role: string | null
+  is_platform_admin: boolean
 }
 
 export interface TokenPairResponse {

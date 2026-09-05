@@ -299,6 +299,7 @@ class AccountService:
                     status="ACTIVE",
                     team_id=auth.team_id,
                     role=auth.role,
+                    is_platform_admin=auth.is_platform_admin,
                 )
             raise NotFoundException("User not found")
         team_member = await self._get_active_team_member(session, user.user_id)
@@ -307,7 +308,7 @@ class AccountService:
         if team_member is not None:
             team_id = str(team_member.team_id)
             role = team_member.role
-        return self._profile(user, team_id=team_id, role=role)
+        return self._profile(user, team_id=team_id, role=role, is_platform_admin=bool(user.is_platform_admin))
 
     async def get_public_profile_by_search_id(self, session: AsyncSession, search_id: int) -> PublicUserProfile:
         result = await session.execute(select(User).where(User.search_id == search_id, User.status == "ACTIVE"))
@@ -321,7 +322,12 @@ class AccountService:
         if user is None or user.status != "ACTIVE":
             raise NotFoundException("User not found")
         team_member = await self._get_active_team_member(session, user.user_id)
-        return self._profile(user, team_id=str(team_member.team_id) if team_member else None, role=team_member.role if team_member else None)
+        return self._profile(
+            user,
+            team_id=str(team_member.team_id) if team_member else None,
+            role=team_member.role if team_member else None,
+            is_platform_admin=bool(user.is_platform_admin),
+        )
 
     async def _get_user_by_email(self, session: AsyncSession, email: str) -> User | None:
         result = await session.execute(select(User).where(User.email == email))
@@ -467,7 +473,14 @@ class AccountService:
             return value.replace(tzinfo=timezone.utc)
         return value
 
-    def _profile(self, user: User, *, team_id: str | None = None, role: str | None = None) -> AuthUserProfile:
+    def _profile(
+        self,
+        user: User,
+        *,
+        team_id: str | None = None,
+        role: str | None = None,
+        is_platform_admin: bool | None = None,
+    ) -> AuthUserProfile:
         return AuthUserProfile(
             user_id=user.user_id,
             search_id=user.search_id,
@@ -478,6 +491,7 @@ class AccountService:
             status=user.status,
             team_id=team_id,
             role=role,
+            is_platform_admin=bool(user.is_platform_admin if is_platform_admin is None else is_platform_admin),
         )
 
     def _public_profile(self, user: User) -> PublicUserProfile:

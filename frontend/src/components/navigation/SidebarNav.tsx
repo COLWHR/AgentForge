@@ -2,6 +2,8 @@ import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { useUiShellStore } from '../../features/ui-shell/uiShell.store'
+import { useAuthStore } from '../../features/auth/auth.store'
+import { isPlatformAdmin, isTeamAdmin } from '../../features/auth/permissions'
 import { cn } from '../../lib/cn'
 import { NAV_ITEMS } from '../../shared/navigation'
 import { Button } from '../ui/Button'
@@ -9,6 +11,7 @@ import { Button } from '../ui/Button'
 export function SidebarNav() {
   const sidebarCollapsed = useUiShellStore((state) => state.sidebarCollapsed)
   const toggleSidebar = useUiShellStore((state) => state.toggleSidebar)
+  const user = useAuthStore((state) => state.user)
 
   return (
     <aside
@@ -28,7 +31,15 @@ export function SidebarNav() {
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => {
+          if (item.access === 'platform_admin') {
+            return isPlatformAdmin(user)
+          }
+          if (item.access === 'team_admin') {
+            return isTeamAdmin(user)
+          }
+          return true
+        }).map((item) => {
           const Icon = item.icon
           return (
             <NavLink

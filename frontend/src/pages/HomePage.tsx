@@ -1,16 +1,20 @@
-import { Blocks, Bot, Compass, ExternalLink, FolderKanban, Sparkles } from 'lucide-react'
+import { Blocks, Bot, Compass, ExternalLink, FolderKanban, LogIn, Shield, Sparkles, UserPlus, UsersRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { useAgentStore } from '../features/agent/agent.store'
 import { useAuthStore } from '../features/auth/auth.store'
+import { isPlatformAdmin, isTeamAdmin } from '../features/auth/permissions'
 
 export function HomePage() {
   const navigate = useNavigate()
   const authStatus = useAuthStore((state) => state.status)
+  const user = useAuthStore((state) => state.user)
   const agentCount = useAgentStore((state) => state.agent_list.filter((agent) => !agent.archived).length)
   const isSignedIn = authStatus === 'authenticated'
+  const platformAdmin = isPlatformAdmin(user)
+  const teamAdmin = isTeamAdmin(user)
 
   return (
     <main className="min-h-screen bg-bg text-text-main">
@@ -28,12 +32,35 @@ export function HomePage() {
           <div className="flex items-center gap-2">
             <Badge variant={isSignedIn ? 'success' : 'neutral'}>{isSignedIn ? '已登录' : '访客'}</Badge>
             {!isSignedIn ? (
-              <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/login')}>
-                登录
-              </Button>
-            ) : null}
+              <>
+                <Button type="button" variant="secondary" size="sm" leftIcon={<LogIn size={14} />} onClick={() => navigate('/login')}>
+                  登录
+                </Button>
+                <Button type="button" size="sm" leftIcon={<UserPlus size={14} />} onClick={() => navigate('/register')}>
+                  注册
+                </Button>
+              </>
+            ) : (
+              <>
+                {teamAdmin ? (
+                  <Button type="button" variant="secondary" size="sm" leftIcon={<UsersRound size={14} />} onClick={() => navigate('/develop/team-admin')}>
+                    团队管理
+                  </Button>
+                ) : null}
+                {platformAdmin ? (
+                  <Button type="button" variant="secondary" size="sm" leftIcon={<Shield size={14} />} onClick={() => navigate('/admin/overview')}>
+                    平台管理
+                  </Button>
+                ) : null}
+              </>
+            )}
           </div>
         </header>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+          <span>访问开发端前请先登录。</span>
+          {isSignedIn ? <Badge variant="info">{user?.display_name ?? '当前用户'}</Badge> : null}
+        </div>
 
         <section className="grid flex-1 content-center gap-4 py-8 md:grid-cols-2">
           <button

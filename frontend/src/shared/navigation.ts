@@ -1,4 +1,4 @@
-import { Blocks, Bot, FileText, PlayCircle, type LucideIcon } from 'lucide-react'
+import { Blocks, Bot, FileText, PlayCircle, Shield, UsersRound, type LucideIcon } from 'lucide-react'
 
 import type { NavItem } from '../types/navigation'
 
@@ -7,6 +7,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: '运行', to: '/develop/runs', icon: PlayCircle },
   { label: '工具市场', to: '/develop/marketplace', icon: Blocks },
   { label: '日志', to: '/develop/logs', icon: FileText },
+  { label: '团队管理', to: '/develop/team-admin', icon: UsersRound, access: 'team_admin' },
+  { label: '平台管理', to: '/admin/overview', icon: Shield, access: 'platform_admin' },
 ]
 
 export const DEFAULT_BREADCRUMB_MAP: Record<string, string> = {

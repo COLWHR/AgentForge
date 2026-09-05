@@ -31,6 +31,7 @@ class AuthContext(BaseModel):
     auth_mode: str
     request_id: str
     role: str = "member"
+    is_platform_admin: bool = False
     is_dev: bool = False
     search_id: Optional[int] = None
     email: Optional[str] = None
@@ -47,6 +48,7 @@ class AuthUserProfile(BaseModel):
     status: str
     team_id: Optional[str] = None
     role: Optional[str] = None
+    is_platform_admin: bool = False
 
 
 class PublicUserProfile(BaseModel):

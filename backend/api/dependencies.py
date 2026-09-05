@@ -39,6 +39,7 @@ async def resolve_auth_context(
             search_id=0,
             email="dev@example.local",
             email_verified=True,
+            is_platform_admin=False,
         )
         set_user_id(auth.user_id)
         set_team_id(auth.team_id)
@@ -77,6 +78,7 @@ async def resolve_auth_context(
     search_id_raw = payload.get("search_id")
     email = payload.get("email")
     email_verified = bool(payload.get("email_verified", False))
+    is_platform_admin = bool(payload.get("is_platform_admin", False))
 
     if not user_id or not team_id:
         logger.bind(
@@ -96,6 +98,7 @@ async def resolve_auth_context(
         search_id=int(search_id_raw) if isinstance(search_id_raw, int) or (isinstance(search_id_raw, str) and search_id_raw.isdigit()) else None,
         email=str(email) if isinstance(email, str) else None,
         email_verified=email_verified,
+        is_platform_admin=is_platform_admin,
     )
     set_user_id(auth.user_id)
     set_team_id(auth.team_id)

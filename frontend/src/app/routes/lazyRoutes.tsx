@@ -9,8 +9,12 @@ export const MarketplacePage = lazy(() => import('../../pages/MarketplacePage').
 export const LogsPage = lazy(() => import('../../pages/LogsPage').then((module) => ({ default: module.LogsPage })))
 export const NotFoundPage = lazy(() => import('../../pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
 export const PublicAgentPage = lazy(() => import('../../pages/PublicAgentPage').then((module) => ({ default: module.PublicAgentPage })))
+export const AdminHomePage = lazy(() => import('../../pages/admin/AdminHomePage').then((module) => ({ default: module.AdminHomePage })))
+export const TeamAdminPage = lazy(() => import('../../pages/admin/TeamAdminPage').then((module) => ({ default: module.TeamAdminPage })))
 export const LoginPage = lazy(() => import('../../pages/auth/AuthPages').then((module) => ({ default: module.LoginPage })))
 export const RegisterPage = lazy(() => import('../../pages/auth/AuthPages').then((module) => ({ default: module.RegisterPage })))
 export const ForgotPasswordPage = lazy(() => import('../../pages/auth/AuthPages').then((module) => ({ default: module.ForgotPasswordPage })))
 export const ResetPasswordPage = lazy(() => import('../../pages/auth/AuthPages').then((module) => ({ default: module.ResetPasswordPage })))
 export const ProfilePage = lazy(() => import('../../pages/auth/AuthPages').then((module) => ({ default: module.ProfilePage })))
+
+
